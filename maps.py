@@ -4,7 +4,7 @@ import cartopy
 import matplotlib.patheffects as PathEffects
 import bezier
 import numpy as np
-from curved_text import CurvedText
+from .text import CurvedText
 import os
 
 
@@ -90,19 +90,25 @@ def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=Non
             axes = plt.gca(),
             **text_properties,
         )
+    else:
+        ct = None
     
     dx = x[-1] - x[-2]
     dy = y[-1] - y[-2]
 
-    ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=line.get_color(), 
+    arr1 = ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=line.get_color(), 
                      head_width=headwidth, head_starts_at_zero=True, length_includes_head=True)
     
     if bidirectional:
         dx = x[0] - x[1]
         dy = y[0] - y[1]
 
-        ax.arrow(x[0] - dx, y[0] - dy, dx, dy, color=kwargs.get_color(),
+        arr2 = ax.arrow(x[0] - dx, y[0] - dy, dx, dy, color=kwargs.get_color(),
                          head_width=headwidth, head_starts_at_zero=False, length_includes_head=True)
+    else:
+        arr2 = None
+
+    return line, ct, arr1, arr2
 
 
 def blue_marble(ax):
@@ -175,11 +181,15 @@ def fancy_arrow(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=Non
             axes = plt.gca(),
             **text_properties,
         )
-    
+    else:
+        ct = None
+
     dx = x[-1] - x[-2]
     dy = y[-1] - y[-2]
 
-    ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=lc.get_color(), 
+    arr = ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=lc.get_color(), 
                      head_width=headwidth, head_starts_at_zero=True, length_includes_head=True)
+
+    return lc, ct, arr
     
 
