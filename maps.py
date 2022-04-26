@@ -7,6 +7,19 @@ import numpy as np
 from .text import CurvedText
 import os
 
+def make_color(r, g, b, a=255):
+    return (r/255., g/255., b/255., a/255.)
+
+
+class mmc_colors:
+    brand_color = make_color(0, 155, 164)
+    dark_red = make_color(93, 19, 62)
+    land_color = '#E9E9E9'
+    wheat = make_color(240, 234, 216)
+    ocean_color='#FFFFFF'
+    dark_blue = make_color(0, 0, 49)
+    darkish_blue = make_color(0, 61, 88)
+    brand_cmap = matplotlib.colors.LinearSegmentedColormap.from_list('branded', ['white', brand_color])
 
 
 def basic_map(lat_min, lat_max, lon_min, lon_max, rivers=False, lakes=True, ocean=True, coast=True,land_color=None, coast_color='black', ocean_color=None, border_color='darkgrey', figsize=(16,16)):
@@ -39,6 +52,11 @@ def basic_map(lat_min, lat_max, lon_min, lon_max, rivers=False, lakes=True, ocea
 
     return fig, ax
 
+
+
+def mmc_map(lat_min, lat_max, lon_min, lon_max, figsize, **kwargs):
+    return basic_map(lat_min, lat_max, lon_min, lon_max, figsize=figsize, coast_color='grey', 
+                       border_color='grey', ocean_color=mmc_colors.ocean_color, land_color=mmc_colors.land_color)
 
 def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=None, text_start=0.4,start=0.0, fin=1.0, headwidth=0.5, text_flip=False, bidirectional=False, text_properties=None, text_offset=(0,0), **kwargs):
     lat_mid = 0.5 * (lat_start + lat_end)
@@ -192,4 +210,5 @@ def fancy_arrow(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=Non
 
     return lc, ct, arr
     
+
 
