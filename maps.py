@@ -1,3 +1,4 @@
+import matplotlib.colors
 from matplotlib import pyplot as plt
 import cartopy.crs as ccrs
 import cartopy
@@ -211,4 +212,14 @@ def fancy_arrow(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=Non
     return lc, ct, arr
     
 
+
+def add_journey_from(ax, locations, origin, dest, offset=(0,0), **kwargs):
+    x0 = locations[origin]
+    y0 = locations[dest]
+    return add_journey(ax, x0[1] + offset[1], x0[0] + offset[0], y0[1] + offset[1], y0[0] + offset[0], **kwargs)
+
+def journey_length(j):
+    x = j[0].get_xdata()
+    y = j[0].get_ydata()
+    return ((x[-1] - x[0])**2 + (y[-1] - y[0])**2)**0.5
 
