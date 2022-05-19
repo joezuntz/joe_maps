@@ -122,7 +122,7 @@ def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=Non
         dx = x[0] - x[1]
         dy = y[0] - y[1]
 
-        arr2 = ax.arrow(x[0] - dx, y[0] - dy, dx, dy, color=kwargs.get_color(),
+        arr2 = ax.arrow(x[0] - dx, y[0] - dy, dx, dy, color=line.get_color(),
                          head_width=headwidth, head_starts_at_zero=False, length_includes_head=True)
     else:
         arr2 = None
@@ -222,4 +222,5 @@ def journey_length(j):
     x = j[0].get_xdata()
     y = j[0].get_ydata()
     return ((x[-1] - x[0])**2 + (y[-1] - y[0])**2)**0.5
+
 

@@ -41,6 +41,15 @@ class Timeline:
                 self.transitions[i][-1] = True
 
         return artists
+
+    def save_frames(self, root, frames = None):
+        if frames is None:
+            frames = self.frames
+        if type(frames) == int:
+            frames = range(frames)
+        for i in frames:
+            self.update(i)
+            self.ax.figure.savefig(f"{root}{i:05}.png")
     
     def save(self, fig, filename, interval=200, **kwargs):
         ani = FuncAnimation(fig, self.update, interval=interval, frames=self.frames, blit=True)
