@@ -31,12 +31,12 @@ class Timeline:
             frac = (f - start) / (end - start)
             frac = np.clip(frac, 0, 1)
             artists += func(frac, *args, **kwargs)
-            if frac == 1:
+            if frac >= 1:
                 self.fraction_updaters[i][-1] = True
         for i,(func, when, args, kwargs, is_done) in enumerate(self.transitions[:]):
             if is_done:
                 continue
-            if f > when:
+            if f >= when:
                 artists += func(*args, **kwargs)
                 self.transitions[i][-1] = True
 
@@ -80,13 +80,14 @@ def wipe_journey(frac, ax, direction, artists):
 
     # If there is an arrowhead, include it in the
     # dimensions to start/end the wipe
-    arr = artists[2]
-    if arr is not None:
-        arr_xy = arr.get_xy()
-        xmin = min(xmin, arr_xy[:, 0].min())
-        xmax = max(xmax, arr_xy[:, 0].max())
-        ymin = min(ymin, arr_xy[:, 1].min())
-        ymax = max(ymax, arr_xy[:, 1].max())
+    if len(artists) > 2:
+        arr = artists[2]
+        if arr is not None:
+            arr_xy = arr.get_xy()
+            xmin = min(xmin, arr_xy[:, 0].min())
+            xmax = max(xmax, arr_xy[:, 0].max())
+            ymin = min(ymin, arr_xy[:, 1].min())
+            ymax = max(ymax, arr_xy[:, 1].max())
 
     buffer = 0.01
     bx = (xmax - xmin) * buffer
@@ -157,3 +158,49 @@ def get_best_direction(j):
         return 'up' if dy > 0 else 'down'
     else:
         return 'right' if dx > 0 else 'left'
+
+def add_label(ax, locations, place, off=(0,0)):
+    x, y = locations[place]
+    c1 = mmc_colors.dark_blue
+    box = dict(boxstyle='round', facecolor=jm.maps.mmc_colors.wheat, alpha=1, edgecolor=c1)
+    return ax.text(x+off[0], y+off[1], place, fontsize=16, bbox=box, fontname='Muli', color=c1)
+
+
+# def set_blurring(art, sigma, weight):
+#     art.set_agg_filter(GaussianFilter(sigma, weight))
+#     return [art] 
+
+def make_appear(*things):
+    for thing in things:
+        if thing is not None:
+            thing.set_visible(True)
+    return things
+
+def make_disappear(*things):
+    for thing in things:
+        if thing is not None:
+            thing.set_visible(False)
+    return things
+
+def change_color(color, *things):
+    for thing in things:
+        if thing is not None:
+            thing.set_color(color)
+    return things
+
+def fade_in(frac, *things):
+    for thing in things:
+        if thing is not None:
+            thing.set_alpha(frac)
+    return things
+
+def fade_out(frac, *things):
+    for thing in things:
+        if thing is not None:
+            thing.set_alpha(1 - frac)
+    return things
+
+
+def interpolate_blurring(frac, art, sigma, weight1, weight2):
+    weight = frac * weight2 + (1 - frac) * weight1
+    return set_blurring(art, sigma, weight)

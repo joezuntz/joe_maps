@@ -52,6 +52,16 @@ class CurvedText(mtext.Text):
         """
         self.update_positions(renderer)
 
+    def set_visible(self, visible):
+        """
+        Overload of the Text.set_visible() function. Do not do
+        do any drawing, but update the positions and rotation
+        angles of self.__Characters.
+        """
+        super(CurvedText, self).set_visible(visible)
+        for _,t in self.__Characters:
+            t.set_visible(visible)
+
     def update_positions(self,renderer):
         """
         Update positions and rotations of the individual text elements.
