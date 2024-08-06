@@ -28,7 +28,10 @@ class Timeline:
                 continue
             if f < start:
                 continue
-            frac = (f - start) / (end - start)
+            if end == start:
+                frac = 1
+            else:
+                frac = (f - start) / (end - start)
             frac = np.clip(frac, 0, 1)
             artists += func(frac, *args, **kwargs)
             if frac >= 1:

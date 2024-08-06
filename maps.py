@@ -58,48 +58,104 @@ def basic_map(lat_min, lat_max, lon_min, lon_max, rivers=False, lakes=True, ocea
 
     return fig, ax
 
+def add_wiggles_to_path(x, y, wiggles):
+    x = x.copy()
+    y = y.copy()
+    wiggle_wavelength, wiggle_amplitude, wiggle_noise = wiggles
+
+    dx = np.diff(x)
+    dy = np.diff(y)
+    cum_length = np.cumsum(np.sqrt(dx**2 + dy**2))
+    dtheta = np.arctan2(dy, dx)
+    dperp = (dtheta + np.pi/2) % (2 * np.pi)
+
+
+    phase = (cum_length / wiggle_wavelength) * 2 * np.pi + np.random.normal(0, wiggle_noise, len(cum_length))
+    wiggle_size = wiggle_amplitude * (1 + np.random.normal(0, wiggle_noise, len(phase)))
+    x[1:-1] += (wiggle_size * np.cos(phase) * np.cos(dperp))[1:]
+    y[1:-1] += (wiggle_size * np.cos(phase) * np.sin(dperp))[1:]
+    return x, y
+
+
+def interpolate_journey(x: np.ndarray, y: np.ndarray, n: int):
+    # interpolate evenly onto the path defined by x and y
+    d = np.sqrt(np.diff(x)**2 + np.diff(y)**2)
+    d = np.concatenate(([0], d))
+    cum_d = np.cumsum(d)
+    t = np.linspace(0, cum_d[-1], n)
+    x_interp = np.interp(t, cum_d, x)
+    y_interp = np.interp(t, cum_d, y)
+    return x_interp, y_interp
+    
+def jitter_point_cloud(x, y, npoint, jitter_tan_range, jitter_perp_sigma):
+    x1, y1 = interpolate_journey(x, y, npoint)
+    dx = np.diff(x1)
+    dy = np.diff(y1)
+    theta = np.arctan2(dy, dx)
+    theta = np.concatenate([theta, [theta[-1]]])
+    jitter_tan = np.random.uniform(-jitter_tan_range/2, jitter_tan_range/2, len(x1))
+    x1 += jitter_tan * np.sin(theta)
+    y1 += jitter_tan * np.cos(theta)
+    jitter_perp = np.random.normal(0, jitter_perp_sigma, len(x1))
+    x1 += jitter_perp * np.cos(theta)
+    y1 += jitter_perp * np.sin(theta)
+    return x1, y1
+
 
 
 def mmc_map(lat_min, lat_max, lon_min, lon_max, figsize, **kwargs):
     return basic_map(lat_min, lat_max, lon_min, lon_max, figsize=figsize, coast_color='grey', 
                        border_color='grey', ocean_color=mmc_colors.ocean_color, land_color=mmc_colors.land_color)
 
-def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=None, text_start=0.4,start=0.0, fin=1.0, headwidth=0.5, text_flip=False, bidirectional=False, text_properties=None, text_offset=(0,0), path_x=None, path_y=None, **kwargs):
+def get_journey_path(lat_start, lon_start, lat_end, lon_end, theta=None, N=None, start=0, fin=1):
+    lat_mid = 0.5 * (lat_start + lat_end)
+    lon_mid = 0.5 * (lon_start + lon_end)
+    dlat =  lat_mid - lat_start
+    dlon = lon_mid - lon_start
+    if theta is None:
+        theta = np.random.uniform(-45, 45)
+    theta = np.radians(theta)
+    c = np.cos(theta)
+    s = np.sin(theta)
+    lon_node = lon_start + (c * dlon) + (s * dlat)
+    lat_node = lat_start + (-s*dlon) + (c * dlat)
+    nodes = np.array([(lon_start, lon_node, lon_end), (lat_start, lat_node, lat_end)])
+    curve = bezier.Curve(nodes, degree=2)
+    if N is None:
+        N = 200
+    x = np.zeros(N)
+    y = np.zeros(N)
+    s0 = start
+    S = np.linspace(s0, fin, N)
+    for i, s in enumerate(S):
+        x_s, y_s = curve.evaluate(s)
+        x[i] = x_s
+        y[i] = y_s
+    x = np.array(x).flatten()
+    y = np.array(y).flatten()
+    return x, y
+
+def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=None, text_start=0.4,start=0.0, fin=1.0, headwidth=0.5, text_flip=False, bidirectional=False, text_properties=None, N=None, offset=(0,0), text_offset=(0,0), path_x=None, path_y=None, wiggles=0, **kwargs):
+
     if path_x is None or path_y is None:
-        lat_mid = 0.5 * (lat_start + lat_end)
-        lon_mid = 0.5 * (lon_start + lon_end)
-        dlat =  lat_mid - lat_start
-        dlon = lon_mid - lon_start
-        if theta is None:
-            theta = np.random.uniform(-45, 45)
-        theta = np.radians(theta)
-        c = np.cos(theta)
-        s = np.sin(theta)
-        lon_node = lon_start + (c * dlon) + (s * dlat)
-        lat_node = lat_start + (-s*dlon) + (c * dlat)
-        nodes = np.array([(lon_start, lon_node, lon_end), (lat_start, lat_node, lat_end)])
-        curve = bezier.Curve(nodes, degree=2)
-        N = 30
-        x = np.zeros(N)
-        y = np.zeros(N)
-        s0 = start
-        S = np.linspace(s0, fin, N)
-        for i, s in enumerate(S):
-            x_s, y_s = curve.evaluate(s)
-            x[i] = x_s
-            y[i] = y_s
-        x = np.array(x).flatten()
-        y = np.array(y).flatten()
+        if N is None:
+            if wiggles:
+                N = 300
+            else:
+                N = 30
+
+        x, y = get_journey_path(lat_start, lon_start, lat_end, lon_end, theta=theta, N=N, start=start, fin=fin)
     else:
         x = path_x
         y = path_y
-    
-    # # Decide whether to flip the order? I think, can't remember.
-    # dist1 = (x[0] - lon_start)**2 + (y[0] - lat_start)**2
-    # dist2 = (x[0] - lon_end)**2 + (y[0] - lat_end)**2
-    # if dist2 < dist1:
-    #     x = x[::-1]
-    #     y = y[::-1]
+
+    x = x + offset[0]
+    y = y + offset[1]
+
+    # If we have asked for a wiggly line then add some wiggles here.
+    if wiggles:
+        x, y = add_wiggles_to_path(x, y, wiggles)
+
     line, = ax.plot(x, y, **kwargs)
     
     if text:
@@ -269,18 +325,48 @@ class Map:
     """
     Class for making a static map.
     """
-    def __init__(self, lat_min, lat_max, lon_min, lon_max, figsize, coast_color='grey', border_color='grey', lakes=False):
+    def __init__(self, lat_min, lat_max, lon_min, lon_max, figsize, coast_color='grey', border_color='grey', lakes=False, ocean_color=None, land_color=None):
         self.fig, self.ax = basic_map(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max,
-                                         figsize=figsize, 
+                                         figsize=figsize, ocean_color=ocean_color, land_color=land_color,
                                          coast_color=coast_color, border_color=border_color, lakes=lakes)
         self.locations = {}
         self.gpx_routes = {}
         self.labels = {}
         self.journeys = []
         self._tiler = None
+    
+    @property
+    def lat_min(self):
+        return self.ax.get_ylim()[0]
+    
+    @property
+    def lat_max(self):
+        return self.ax.get_ylim()[1]
+    
+    @property
+    def lon_min(self):
+        return self.ax.get_xlim()[0]
+    
+    @property
+    def lon_max(self):  
+        return self.ax.get_xlim()[1]
 
     def add_locations(self, places):
         self.locations.update(places)
+
+    def distance_map_from_point(self, lon, lat, nx=500):
+        aspect = (self.lat_max - self.lat_min) / (self.lon_max - self.lon_min)
+        ny = int(nx * aspect)
+        x0, y0 = self.ax.transData.transform([lon, lat])
+        x0, y0 = self.ax.transAxes.inverted().transform([x0, y0])
+        dx = np.arange(nx)
+        dy = np.arange(ny)
+        dx, dy = np.meshgrid(dx, dy)
+        dx = dx - x0 * nx
+        dy = dy - y0 * ny
+        d = np.sqrt(dx**2 + dy**2)
+        return d
+
 
     def geometry_from_extent(self, extent, crs):
         x1, x2, y1, y2 = extent
@@ -303,13 +389,15 @@ class Map:
         img, extent, origin = tiler.image_for_domain(geometry, zoom_level)
         return self.ax.imshow(img, extent=extent, origin=origin, transform=tiler.crs)
             
+
+    def add_text(self, x, y, text, offset=(0, 0),facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
+        box = dict(boxstyle='round', facecolor=facecolor, alpha=1, edgecolor=edgecolor)
+        return self.ax.text(x+offset[0], y+offset[1], text, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
     
     def add_label(self, place, offset=(0,0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
         x, y = self.locations[place]
-        box = dict(boxstyle='round', facecolor=facecolor, alpha=1, edgecolor=edgecolor)
-        label = self.ax.text(x+offset[0], y+offset[1], place, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
+        label = self.add_text(x, y, place, offset=offset, facecolor=facecolor, textcolor=textcolor, edgecolor=edgecolor, **kwargs)
         self.labels[place] = label
-        self._current_label_offsets[place] = offset
         return label
 
     def add_point(self, place, *args, **kwargs):
@@ -327,29 +415,51 @@ class Map:
             offset = offsets.get(location, (0.4,0))
             self.add_label(location, offset)
     
-    def add_journey(self, start, end, theta=0, start_gap=0.03, end_gap=0.03, bidirectional=False, lw=3, **kwargs):
+    def get_path(self, start, end, theta=0, start_gap=0.03, end_gap=0.03):
+        x1, y1 = self.locations[start]
+        x2, y2 = self.locations[end]
+        return get_journey_path(y1, x1, y2, x2, theta=theta, start=start_gap, fin=1 - end_gap)
+    
+    def add_journey(self, start, end, theta=0, start_gap=0.03, end_gap=0.03, bidirectional=False, lw=3,  **kwargs):
         x1, y1 = self.locations[start]
         x2, y2 = self.locations[end]
         journey = add_journey(self.ax, y1, x1, y2, x2, theta=theta, start=start_gap, fin=1 - end_gap, bidirectional=bidirectional, lw=lw, **kwargs)
         self.journeys.append(journey)
         return journey
 
-    def add_return_journey(self, journey, *args, lw=3, **kwargs):
+    def add_uncertain_journey(self, start, end, npoint, tangential_scatter_sigma, perpendicular_scatter_width, *args, theta=0, start_gap=0.03, end_gap=0.03, lw=3,  include_line=True, **kwargs):
+        # optional line under the points
+        if include_line:
+            self.add_journey(start, end, theta=theta, start_gap=start_gap, end_gap=end_gap, lw=lw, **kwargs)
+        x, y = self.get_path(start, end,  theta=theta, end_gap=end_gap, start_gap=start_gap)
+        x, y = jitter_point_cloud(x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width)
+        # don't want to include this
+        ls = kwargs.pop('linestyle', None)
+        journey, = self.ax.plot(x, y, *args, **kwargs)
+        self.journeys.append(journey)
+        return journey
+
+
+    def add_return_journey(self, journey, lw=3, **kwargs):
         x = journey[0].get_xdata()[::-1]
         y = journey[0].get_ydata()[::-1]
         journey = add_journey(self.ax, None, None, None, None, path_x=x, path_y=y, lw=lw, **kwargs)
         self.journeys.append(journey)
-        return journey        
+        return journey     
 
     def read_gpx_route(self, gpx_file, start, end):
         path_x, path_y = read_gpx(gpx_file)
         self.gpx_routes[start, end] = (path_x, path_y)
         self.gpx_routes[end, start] = (path_x[::-1], path_y[::-1])
 
-    def add_gpx_route(self, start, end, offset=(0,0), text=None, text_properties=None, *args, **kwargs):
+    def add_gpx_route(self, start, end, offset=(0,0), text=None, text_properties=None, *args,  **kwargs):
         path_x, path_y = self.gpx_routes[start, end]
         path_x = path_x + offset[0]
         path_y = path_y + offset[1]
+        wiggles = kwargs.pop("wiggles", None)
+        if wiggles:
+            path_x, path_y = add_wiggles_to_path(path_x, path_y, wiggles)
+    
         journey = self.ax.plot(path_x, path_y, *args, **kwargs)
         # add a text label for this journey
         self.journeys.append(journey)
@@ -361,8 +471,48 @@ class Map:
             journey = (journey[0], t)
         return journey
 
+    def add_uncertain_gpx_route(self, start, end, npoint, tangential_scatter_sigma, perpendicular_scatter_width,  *args, offset=(0,0), include_line=True, **kwargs):
+        if include_line:
+            self.add_gpx_route(start, end, *args, offset=offset, **kwargs)
+        x, y = self.gpx_routes[start, end]
+        x, y = jitter_point_cloud(x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width)
+        journey,  = self.ax.plot(x, y, *args, **kwargs)
+        self.journeys.append([journey])
+        return journey
+
+
     def set_title(self, title, **kwargs):
         self.ax.set_title(title, **kwargs)
+
+    def unmask_circle(self, x, y, r, mask=None, nx=500):
+        if mask is None:
+            ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
+            mask = np.ones((ny, nx))
+        else:
+            ny, nx = mask.shape
+
+        mask_i = self.distance_map_from_point(x, y)
+        mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
+        np.minimum(mask, mask_i, out=mask)
+        return mask
+
+    def unmask_journey(self, journey, r, mask=None, nx=500):
+        if mask is None:
+            ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
+            mask = np.ones((ny, nx))
+        else:
+            ny, nx = mask.shape
+
+        line = journey[0]
+        x = line.get_xdata()
+        y = line.get_ydata()
+        for xi, yi in zip(x, y):
+            mask_i = self.distance_map_from_point(xi, yi)
+            mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
+            np.minimum(mask, mask_i, out=mask)
+
+        return mask
+
 
 class AnimatedMap(Map):
     def __init__(self, *args, duration, delta, **kwargs):
@@ -377,6 +527,14 @@ class AnimatedMap(Map):
         self.current_time = 0.0
         self._current_zoom = self.ax.get_xlim(), self.ax.get_ylim()
         self._current_label_offsets = {}
+
+    def add_label(self, place, offset=(0,0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
+        x, y = self.locations[place]
+        box = dict(boxstyle='round', facecolor=facecolor, alpha=1, edgecolor=edgecolor)
+        label = self.ax.text(x+offset[0], y+offset[1], place, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
+        self.labels[place] = label
+        self._current_label_offsets[place] = offset
+        return label
 
     def _animate_journey(self, journey, time, speed, direction):
         if time is None and speed is None:
@@ -547,6 +705,23 @@ class AnimatedMap(Map):
         """
         def f(t, **kwargs):
             pass
+
+    def add_fog_of_war(self, nx):
+        ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
+        fog = np.random.uniform(0, 1, (ny, nx))
+        fog_rgba = np.zeros((ny, nx, 4))
+        fog_rgba[:, :, 0] = fog
+        fog_rgba[:, :, 1] = fog
+        fog_rgba[:, :, 2] = fog
+        fog_rgba[:, :, 3] = 1
+        self.fog_array = fog_rgba
+        self.fog_img = self.ax.imshow(self.fog_array)
+
+    def hide_fog_of_war(self):
+        pass
+
+    
+
 
 
 def geocode(places):
