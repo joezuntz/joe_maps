@@ -6,6 +6,7 @@ from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 from . import anim
 
+
 class BaseJourney:
     """
     Not yet written
@@ -13,9 +14,9 @@ class BaseJourney:
 
     def __init__(self, x, y, artists):
         self.artists = artists
-        # Copy these because we may modify them when
-        # animating and we want to retain the original
-        # so that we can reset the simulation
+        # Copy these because we may modify them when
+        # animating and we want to retain the original
+        # so that we can reset the simulation
         self.x = x.copy()
         self.y = y.copy()
 
@@ -27,7 +28,7 @@ class BaseJourney:
         Return the length of the journey
         """
         return np.sum(np.sqrt(np.diff(self.x) ** 2 + np.diff(self.y) ** 2))
-    
+
     def hide(self):
         for artist in self.artists.values():
             artist.set_visible(False)
@@ -47,7 +48,6 @@ class BaseJourney:
         line.set_xdata(self.x[:n])
         line.set_ydata(self.y[:n])
 
-
         if "arrow1" in self.artists:
             arrow1 = self.artists["arrow1"]
             if frac > 0.01:
@@ -63,7 +63,6 @@ class BaseJourney:
 
         # Return everything that might be animated
         return list(self.artists.values())
-
 
 
 class ArcJourney(BaseJourney):
@@ -100,7 +99,6 @@ class ArcJourney(BaseJourney):
 
         x = x + offset[0]
         y = y + offset[1]
-
 
         line = Line2D(x, y, **kwargs)
 
@@ -169,15 +167,8 @@ class ArcJourney(BaseJourney):
             ax.add_patch(self.artists["arrow2"])
 
 
-
 class GPXJourney(BaseJourney):
-    def __init__(
-        self,
-        gpx_file,
-        offset=(0, 0),
-        *args,
-        **kwargs
-    ):
+    def __init__(self, gpx_file, offset=(0, 0), *args, **kwargs):
         lat, lon = read_gpx(gpx_file)
         y, x = lat, lon
 
@@ -188,7 +179,6 @@ class GPXJourney(BaseJourney):
 
         artists = {"line": line}
         super().__init__(x, y, artists)
-
 
     def draw(self, ax):
         ax.add_line(self.artists["line"])

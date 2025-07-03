@@ -14,14 +14,16 @@ import numpy as np
 #     d = np.sqrt(dx**2 + dy**2)
 #     return d
 
+
 def make_noise(nx, ny):
-    noise = np.random.uniform(0, 1, (ny,nx))
-    rgba = np.zeros((ny,nx,4))
-    rgba[:,:,0] = noise
-    rgba[:,:,1] = noise
-    rgba[:,:,2] = noise
-    rgba[:,:,3] = 1
+    noise = np.random.uniform(0, 1, (ny, nx))
+    rgba = np.zeros((ny, nx, 4))
+    rgba[:, :, 0] = noise
+    rgba[:, :, 1] = noise
+    rgba[:, :, 2] = noise
+    rgba[:, :, 3] = 1
     return rgba
+
 
 # def unmask_line(map, noise, x0, y0, x1, y1, r, n=20):
 #     mask = np.ones(noise.shape[:2])
