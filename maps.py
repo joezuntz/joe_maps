@@ -325,7 +325,7 @@ class Map:
     """
     Class for making a static map.
     """
-    def __init__(self, lat_min, lat_max, lon_min, lon_max, figsize, coast_color='grey', border_color='grey', lakes=False, ocean_color=None, land_color=None):
+    def __init__(self, lat_min, lat_max, lon_min, lon_max, figsize, coast_color='grey', border_color='grey', lakes=False, ocean_color=None, land_color=None, noise_level=None, noise_mask=None):
         self.fig, self.ax = basic_map(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max,
                                          figsize=figsize, ocean_color=ocean_color, land_color=land_color,
                                          coast_color=coast_color, border_color=border_color, lakes=lakes)
@@ -334,6 +334,10 @@ class Map:
         self.labels = {}
         self.journeys = []
         self._tiler = None
+        self.fog_mask = None
+        self.fog_img = None
+        self.fog_alpha_max = None
+        self.fog_array = None
     
     @property
     def lat_min(self):
@@ -354,9 +358,9 @@ class Map:
     def add_locations(self, places):
         self.locations.update(places)
 
-    def distance_map_from_point(self, lon, lat, nx=500):
-        aspect = (self.lat_max - self.lat_min) / (self.lon_max - self.lon_min)
-        ny = int(nx * aspect)
+        
+
+    def distance_map_from_point(self, lon, lat, nx, ny):
         x0, y0 = self.ax.transData.transform([lon, lat])
         x0, y0 = self.ax.transAxes.inverted().transform([x0, y0])
         dx = np.arange(nx)
@@ -484,34 +488,84 @@ class Map:
     def set_title(self, title, **kwargs):
         self.ax.set_title(title, **kwargs)
 
-    def unmask_circle(self, x, y, r, mask=None, nx=500):
+    def unmask_circle(self, x, y, r, mask=None):
         if mask is None:
-            ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
-            mask = np.ones((ny, nx))
-        else:
-            ny, nx = mask.shape
+            mask = self.fog_mask
+        
+        ny, nx = mask.shape
 
-        mask_i = self.distance_map_from_point(x, y)
+        mask_i = self.distance_map_from_point(x, y, nx, ny)
         mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
         np.minimum(mask, mask_i, out=mask)
         return mask
 
-    def unmask_journey(self, journey, r, mask=None, nx=500):
+    def unmask_journey(self, journey, r, mask=None, frac=None):
         if mask is None:
-            ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
-            mask = np.ones((ny, nx))
-        else:
-            ny, nx = mask.shape
+            mask = self.fog_mask
+
+        ny, nx = mask.shape
 
         line = journey[0]
         x = line.get_xdata()
         y = line.get_ydata()
+        if frac is not None:
+            x = x[:int(frac * len(x))]
+            y = y[:int(frac * len(y))]
+
         for xi, yi in zip(x, y):
-            mask_i = self.distance_map_from_point(xi, yi)
+            mask_i = self.distance_map_from_point(xi, yi, nx, ny)
             mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
             np.minimum(mask, mask_i, out=mask)
 
         return mask
+
+
+
+    def add_fog_of_war(self, nx, alpha=0.5, should_change_each_image=True):
+        (lon_min, lon_max), (lat_min, lat_max) = self._current_zoom
+        ny = int((lat_max - lat_min) / (lon_max - lon_min) * nx)
+        fog = np.random.uniform(0, 1, (ny, nx))
+        self.fog_is_animated = should_change_each_image
+        fog_rgba = np.zeros((ny, nx, 4))
+        fog_rgba[:, :, 0] = fog
+        fog_rgba[:, :, 1] = fog
+        fog_rgba[:, :, 2] = fog
+        fog_rgba[:, :, 3] = alpha
+        self.fog_array = fog_rgba
+        extent = [lon_min, lon_max, lat_min, lat_max]
+        self.fog_alpha_max = alpha
+        self.fog_img = self.ax.imshow(self.fog_array,
+                                      cmap='Greys',
+                                      extent=extent,
+                                      interpolation='nearest',
+                                      origin='lower')
+        self.fog_mask = np.ones((ny, nx))
+        
+
+    def rebuild_fog_of_war(self):
+        if self.fog_img is None:
+            return
+        ny, nx = self.fog_mask.shape
+
+        # we might want fog that just vanishes but is otherwise
+        # fixed
+        if self.fog_is_animated:
+            fog = np.random.uniform(0, 1, (ny, nx))
+            self.fog_array[:, :, 0] = fog
+            self.fog_array[:, :, 1] = fog
+            self.fog_array[:, :, 2] = fog
+        self.fog_array[:, :, 3] = self.fog_mask * self.fog_alpha_max
+        self.fog_img.set_data(self.fog_array)
+        return (self.fog_img,)
+    
+    def reset_fog_of_war(self):
+        self.fog_mask[:] = 1
+        return self.rebuild_fog_of_war()
+    
+
+    def hide_fog_of_war(self):
+        self.fog_mask[:] = 0
+        return self.rebuild_fog_of_war()
 
 
 class AnimatedMap(Map):
@@ -527,6 +581,7 @@ class AnimatedMap(Map):
         self.current_time = 0.0
         self._current_zoom = self.ax.get_xlim(), self.ax.get_ylim()
         self._current_label_offsets = {}
+        self.fog_img = None
 
     def add_label(self, place, offset=(0,0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
         x, y = self.locations[place]
@@ -534,9 +589,19 @@ class AnimatedMap(Map):
         label = self.ax.text(x+offset[0], y+offset[1], place, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
         self.labels[place] = label
         self._current_label_offsets[place] = offset
+        label.set_visible(False)
+        print(f"Showing label {place} at", self.current_time)
+        self.show(label)
         return label
+    
+    def add_point(self, place, *args, **kwargs):
+        points = super().add_point(place, *args, **kwargs)
+        points.set_visible(False)
+        print(f"Showing point at {place} at", self.current_time)
+        self.show(points)
+        return points
 
-    def _animate_journey(self, journey, time, speed, direction):
+    def _animate_journey(self, journey, time, speed, direction, unmask_radius=0):
         if time is None and speed is None:
             raise ValueError("Set time or speed for animated map journeys")
         elif time is None:
@@ -551,32 +616,41 @@ class AnimatedMap(Map):
         end_time = self.current_time + time
         start_frame = self.current_time / self.delta
         end_frame = end_time / self.delta
-        print(f"Journey will take from time {self.current_time} to {end_time} == frame {start_frame} to {end_frame}")
+        print(f"Journey will take from time {self.current_time:.2f} to {end_time:.2f} == frame {start_frame:.1f} to {end_frame:.1f}")
 
         # If there is a label, make it appear and disappear.  Really need a journey class to do this properly.
         if len(journey) > 1 and journey[1] is not None:
             journey[1].set_visible(False)
             self.timeline.add_transition(anim.make_appear, start_frame, journey[1])
             self.timeline.add_transition(anim.make_disappear, end_frame, journey[1])
-            
+
+        if (self.fog_img is not None) and unmask_radius:
+
+            def unmask_journey(f):
+                self.unmask_journey(journey, unmask_radius, frac=f)
+                return self.rebuild_fog_of_war()
+            self.timeline.add_fraction_updater(unmask_journey, start_frame, end_frame)
+
+        self.timeline.add_fraction_updater(anim.wipe_journey, start_frame, end_frame, self.ax, direction, journey)
+
 
         # Add the animation to the timeline
         self.timeline.add_fraction_updater(anim.wipe_journey, start_frame, end_frame, self.ax, direction, journey)
         self.current_time = end_time
 
-    def add_journey(self, *args, time=None, speed=None, direction=None, **kwargs):
+    def add_journey(self, *args, time=None, speed=None, direction=None, fog_clear_radius=0, **kwargs):
         journey = super().add_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction)
+        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
         return journey
 
-    def add_return_journey(self, *args, time=None, speed=None, direction=None, **kwargs):
+    def add_return_journey(self, *args, time=None, speed=None, direction=None, fog_clear_radius=0,**kwargs):
         journey = super().add_return_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction)
+        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
         return journey
 
-    def add_gpx_route(self, *args, speed=None, time=None, direction=None, **kwargs):
+    def add_gpx_route(self, *args, speed=None, time=None, direction=None, fog_clear_radius=0, **kwargs):
         journey = super().add_gpx_route(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction)
+        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
         return journey
 
     def save(self, path, **kwargs):
@@ -679,6 +753,15 @@ class AnimatedMap(Map):
             frame1,
             self.ax, [start_x, start_y], [end_x, end_y]
         )
+        if self.fog_mask is not None:
+            # zoom the fog of war too?
+            self.timeline.add_fraction_updater(anim.zoom_extent, 
+                                               frame0, 
+                                               frame1, 
+                                               self.fog_img, 
+                                               [start_x, start_y], 
+                                               [end_x, end_y])
+
         self.current_time = t1
         self._current_zoom = end_x, end_y
 
@@ -706,21 +789,36 @@ class AnimatedMap(Map):
         def f(t, **kwargs):
             pass
 
-    def add_fog_of_war(self, nx):
-        ny = int((self.lat_max - self.lat_min) / (self.lon_max - self.lon_min) * nx)
-        fog = np.random.uniform(0, 1, (ny, nx))
-        fog_rgba = np.zeros((ny, nx, 4))
-        fog_rgba[:, :, 0] = fog
-        fog_rgba[:, :, 1] = fog
-        fog_rgba[:, :, 2] = fog
-        fog_rgba[:, :, 3] = 1
-        self.fog_array = fog_rgba
-        self.fog_img = self.ax.imshow(self.fog_array)
+
+    def add_animated_fog_of_war(self, nx, alpha=0.5):
+        self.add_fog_of_war(nx, alpha=alpha, should_change_each_image=True)
+        def update(i):
+            return self.rebuild_fog_of_war()
+        self.timeline.add_every_frame_updater(update)
+
+
+    def unmask_circle(self, x, y, r, time, **kwargs):
+        frame0 = self.current_time / self.delta
+        frame1 = (self.current_time + time) / self.delta
+        print(f"Unmasking circle from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}")
+        supe = super()
+        def f(frac):
+            supe.unmask_circle(x, y, r * frac)
+            return self.rebuild_fog_of_war()
+        self.timeline.add_fraction_updater(f, frame0, frame1)
+        self.current_time += time
 
     def hide_fog_of_war(self):
-        pass
+        supe = super()
+        def f():
+            return supe.hide_fog_of_war()
+        self.timeline.add_transition(f, self.current_time / self.delta)
 
-    
+    def reset_fog_of_war(self):
+        supe = super()
+        def f():
+            return supe.reset_fog_of_war()
+        self.timeline.add_transition(f, self.current_time / self.delta)
 
 
 

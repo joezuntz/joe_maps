@@ -8,6 +8,7 @@ class Timeline:
         self.frames = frames
         self.fraction_updaters = []
         self.transitions = []
+        self.every_frame_updaters = []
         # self.time_updaters = []
         # self.abs_time_updaters = []
         self.verbose = verbose
@@ -18,10 +19,11 @@ class Timeline:
     def add_transition(self, f, when, *args, **kwargs):
         self.transitions.append([f, when, args, kwargs, False])
 
+    def add_every_frame_updater(self, f, *args, **kwargs):
+        self.every_frame_updaters.append([f, args, kwargs])
+
         
     def update(self, f):
-        if self.verbose:
-            print(f"Frame {f}")
         artists = []
         for i,(func, start, end, args, kwargs, is_done) in enumerate(self.fraction_updaters[:]):
             if is_done:
@@ -42,6 +44,12 @@ class Timeline:
             if f >= when:
                 artists += func(*args, **kwargs)
                 self.transitions[i][-1] = True
+
+        for i, (func, args, kwargs) in enumerate(self.every_frame_updaters):
+            artists += func(f, *args, **kwargs)
+
+        if self.verbose:
+            print(f"Frame {f} updating {len(artists)} artists")
 
         return artists
 
@@ -150,6 +158,18 @@ def zoom_to(frac, ax, starts, ends):
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
     return [ax.figure]
+
+def zoom_extent(frac, obj, starts, ends):
+    start_x = starts[0]
+    start_y = starts[1]
+    end_x = ends[0]
+    end_y = ends[1]
+    xmin = start_x[0] + frac * (end_x[0] - start_x[0])
+    xmax = start_x[1] + frac * (end_x[1] - start_x[1])
+    ymin = start_y[0] + frac * (end_y[0] - start_y[0])
+    ymax = start_y[1] + frac * (end_y[1] - start_y[1])
+    obj.set_extent([xmin, xmax, ymin, ymax])
+    return [obj]
 
     
 def get_best_direction(j):
