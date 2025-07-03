@@ -5,13 +5,12 @@ import cartopy
 import matplotlib.patheffects as PathEffects
 import bezier
 import numpy as np
-from .text import CurvedText
 from . import anim
 import os
-import gpxpy
 import shapely
 import geopandas as gpd
 import cartopy.io.img_tiles
+from .journey import ArcJourney, GPXJourney
 
 def make_color(r, g, b, a=255):
     return (r/255., g/255., b/255., a/255.)
@@ -107,96 +106,6 @@ def mmc_map(lat_min, lat_max, lon_min, lon_max, figsize, **kwargs):
     return basic_map(lat_min, lat_max, lon_min, lon_max, figsize=figsize, coast_color='grey', 
                        border_color='grey', ocean_color=mmc_colors.ocean_color, land_color=mmc_colors.land_color)
 
-def get_journey_path(lat_start, lon_start, lat_end, lon_end, theta=None, N=None, start=0, fin=1):
-    lat_mid = 0.5 * (lat_start + lat_end)
-    lon_mid = 0.5 * (lon_start + lon_end)
-    dlat =  lat_mid - lat_start
-    dlon = lon_mid - lon_start
-    if theta is None:
-        theta = np.random.uniform(-45, 45)
-    theta = np.radians(theta)
-    c = np.cos(theta)
-    s = np.sin(theta)
-    lon_node = lon_start + (c * dlon) + (s * dlat)
-    lat_node = lat_start + (-s*dlon) + (c * dlat)
-    nodes = np.array([(lon_start, lon_node, lon_end), (lat_start, lat_node, lat_end)])
-    curve = bezier.Curve(nodes, degree=2)
-    if N is None:
-        N = 200
-    x = np.zeros(N)
-    y = np.zeros(N)
-    s0 = start
-    S = np.linspace(s0, fin, N)
-    for i, s in enumerate(S):
-        x_s, y_s = curve.evaluate(s)
-        x[i] = x_s
-        y[i] = y_s
-    x = np.array(x).flatten()
-    y = np.array(y).flatten()
-    return x, y
-
-def add_journey(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=None, text_start=0.4,start=0.0, fin=1.0, headwidth=0.5, text_flip=False, bidirectional=False, text_properties=None, N=None, offset=(0,0), text_offset=(0,0), path_x=None, path_y=None, wiggles=0, **kwargs):
-
-    if path_x is None or path_y is None:
-        if N is None:
-            if wiggles:
-                N = 300
-            else:
-                N = 30
-
-        x, y = get_journey_path(lat_start, lon_start, lat_end, lon_end, theta=theta, N=N, start=start, fin=fin)
-    else:
-        x = path_x
-        y = path_y
-
-    x = x + offset[0]
-    y = y + offset[1]
-
-    # If we have asked for a wiggly line then add some wiggles here.
-    if wiggles:
-        x, y = add_wiggles_to_path(x, y, wiggles)
-
-    line, = ax.plot(x, y, **kwargs)
-    
-    if text:
-        text_properties = {} if text_properties is None else text_properties
-        # ds = S[1] - S[0]
-        # istart = int((text_start - s0) / ds)
-        istart = int(len(x) * text_start)
-        if text_flip:
-            tx = x[::-1][istart:]
-            ty = y[::-1][istart:]
-        else:
-            tx = x[istart:]
-            ty = y[istart:]
-        ct = CurvedText(
-            x = tx + text_offset[0],
-            y = ty + text_offset[1],
-            text = text,
-            va = 'bottom',
-            axes = plt.gca(),
-            **text_properties,
-        )
-    else:
-        ct = None
-    
-    dx = x[-1] - x[-2]
-    dy = y[-1] - y[-2]
-
-    arr1 = ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=line.get_color(), 
-                     head_width=headwidth, head_starts_at_zero=True, length_includes_head=True)
-    
-    if bidirectional:
-        dx = x[0] - x[1]
-        dy = y[0] - y[1]
-
-        arr2 = ax.arrow(x[0] - dx, y[0] - dy, dx, dy, color=line.get_color(),
-                         head_width=headwidth, head_starts_at_zero=False, length_includes_head=True)
-    else:
-        arr2 = None
-
-    return line, ct, arr1, arr2
-
 
 def blue_marble(ax):
     os.environ['CARTOPY_USER_BACKGROUNDS'] = "/Users/jzuntz/src/anne/base-images/"
@@ -213,91 +122,7 @@ def explorer(ax):
     ax.set_extent(extent)
 
 
-def fancy_arrow(ax, lat_start, lon_start, lat_end, lon_end, theta=None, text=None, text_start=0.4,start=0.0, text_offset=(0, 0), fin=1.0, headwidth=0.5, text_flip=False, bidirectional=False, text_properties=None, min_width=1, max_width=5, dash=False, **kwargs):
-    lat_mid = 0.5 * (lat_start + lat_end)
-    lon_mid = 0.5 * (lon_start + lon_end)
-    dlat =  lat_mid - lat_start
-    dlon = lon_mid - lon_start
-    if theta is None:
-        theta = np.random.uniform(-45, 45)
-    theta = np.radians(theta)
-    c = np.cos(theta)
-    s = np.sin(theta)
-    lon_node = lon_start + (c * dlon) + (s * dlat)
-    lat_node = lat_start + (-s*dlon) + (c * dlat)
-    nodes = np.array([(lon_start, lon_node, lon_end), (lat_start, lat_node, lat_end)])
-    curve = bezier.Curve(nodes, degree=2)
-    N = 30
-    x = np.zeros(N)
-    y = np.zeros(N)
-    s0 = start
-    S = np.linspace(s0, fin, N)
-    for i, s in enumerate(S):
-        x_s, y_s = curve.evaluate(s)
-        x[i] = x_s
-        y[i] = y_s
-    x = np.array(x).flatten()
-    y = np.array(y).flatten()
-    
-    lwidths = np.linspace(min_width, max_width, x.size)
-    points = np.array([x, y]).T.reshape(-1, 1, 2)
-    segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
-    if dash:
-        segments = segments[::2]
-        lwidths = lwidths[::2]
-    lc = plt.matplotlib.collections.LineCollection(segments, linewidths=lwidths, **kwargs)
-    ax.add_collection(lc)
-
-    
-    if text:
-        text_properties = {} if text_properties is None else text_properties
-        ds = S[1] - S[0]
-        istart = int((text_start - s0) / ds)
-        if text_flip:
-            tx = x[::-1][istart:]
-            ty = y[::-1][istart:]
-        else:
-            tx = x[istart:]
-            ty = y[istart:]
-        ct = CurvedText(
-            x = tx + text_offset[0],
-            y = ty + text_offset[1],
-            text = text,
-            va = 'bottom',
-            axes = plt.gca(),
-            **text_properties,
-        )
-    else:
-        ct = None
-
-    dx = x[-1] - x[-2]
-    dy = y[-1] - y[-2]
-
-    arr = ax.arrow(x[-1] - dx, y[-1] - dy, dx, dy, color=lc.get_color(), 
-                     head_width=headwidth, head_starts_at_zero=True, length_includes_head=True)
-
-    return lc, ct, arr
-    
-
-
-def add_journey_from(ax, locations, origin, dest, offset=(0,0), **kwargs):
-    x0 = locations[origin]
-    y0 = locations[dest]
-    return add_journey(ax, x0[1] + offset[1], x0[0] + offset[0], y0[1] + offset[1], y0[0] + offset[0], **kwargs)
-
-def journey_length(j):
-    x = j[0].get_xdata()
-    y = j[0].get_ydata()
-    return np.sum(np.sqrt((np.diff(x)**2 + np.diff(y)**2)))
-
-
-def read_gpx(filename):
-    with open(filename, 'r') as f:
-        gpx = gpxpy.parse(f)    
-    lat = np.array([p.point.latitude for p in gpx.get_points_data()])
-    lon = np.array([p.point.longitude for p in gpx.get_points_data()])
-    return lon, lat
 
 def get_border_between(gdf, region1, region2):
     d1 = gdf.query(f'iso3=="{region1}"')
@@ -306,20 +131,6 @@ def get_border_between(gdf, region1, region2):
     return shapely.get_coordinates(border).T
 
 
-class Journey:
-    """
-    Not yet written
-    """
-    def __init__(self):
-        self.x = None
-        self.y = None
-        self.label = None
-        self.text = None
-        self.start_arrow = None
-        self.end_arrow = None
-
-    def make_return_journey(self):
-        pass
 
 class Map:
     """
@@ -399,13 +210,13 @@ class Map:
         return self.ax.text(x+offset[0], y+offset[1], text, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
     
     def add_label(self, place, offset=(0,0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
-        x, y = self.locations[place]
+        y, x = self.locations[place]
         label = self.add_text(x, y, place, offset=offset, facecolor=facecolor, textcolor=textcolor, edgecolor=edgecolor, **kwargs)
         self.labels[place] = label
         return label
 
     def add_point(self, place, *args, **kwargs):
-        x, y = self.locations[place]
+        y, x = self.locations[place]
         return self.ax.plot(x, y,  *args, **kwargs)[0]
 
     def add_all_points(self,  *args, **kwargs):
@@ -419,17 +230,21 @@ class Map:
             offset = offsets.get(location, (0.4,0))
             self.add_label(location, offset)
     
-    def get_path(self, start, end, theta=0, start_gap=0.03, end_gap=0.03):
-        x1, y1 = self.locations[start]
-        x2, y2 = self.locations[end]
-        return get_journey_path(y1, x1, y2, x2, theta=theta, start=start_gap, fin=1 - end_gap)
     
-    def add_journey(self, start, end, theta=0, start_gap=0.03, end_gap=0.03, bidirectional=False, lw=3,  **kwargs):
-        x1, y1 = self.locations[start]
-        x2, y2 = self.locations[end]
-        journey = add_journey(self.ax, y1, x1, y2, x2, theta=theta, start=start_gap, fin=1 - end_gap, bidirectional=bidirectional, lw=lw, **kwargs)
+    def add_journey(self, start, end, **kwargs):
+        lat_start, lon_start = self.locations[start]
+        lat_end, lon_end = self.locations[end]
+        journey = ArcJourney(lat_start, lon_start, lat_end, lon_end, **kwargs)
+        journey.draw(self.ax)
         self.journeys.append(journey)
         return journey
+    
+    def add_gpx_journey(self, gpx_file, **kwargs):
+        journey = GPXJourney(gpx_file, **kwargs)
+        journey.draw(self.ax)
+        self.journeys.append(journey)
+        return journey
+
 
     def add_uncertain_journey(self, start, end, npoint, tangential_scatter_sigma, perpendicular_scatter_width, *args, theta=0, start_gap=0.03, end_gap=0.03, lw=3,  include_line=True, **kwargs):
         # optional line under the points
@@ -451,29 +266,8 @@ class Map:
         self.journeys.append(journey)
         return journey     
 
-    def read_gpx_route(self, gpx_file, start, end):
-        path_x, path_y = read_gpx(gpx_file)
-        self.gpx_routes[start, end] = (path_x, path_y)
-        self.gpx_routes[end, start] = (path_x[::-1], path_y[::-1])
 
-    def add_gpx_route(self, start, end, offset=(0,0), text=None, text_properties=None, *args,  **kwargs):
-        path_x, path_y = self.gpx_routes[start, end]
-        path_x = path_x + offset[0]
-        path_y = path_y + offset[1]
-        wiggles = kwargs.pop("wiggles", None)
-        if wiggles:
-            path_x, path_y = add_wiggles_to_path(path_x, path_y, wiggles)
-    
-        journey = self.ax.plot(path_x, path_y, *args, **kwargs)
-        # add a text label for this journey
-        self.journeys.append(journey)
-        if text:
-            text_properties=text_properties or {}
-            xt = 0.5 * (path_x.max() + path_x.min())
-            yt = path_y.min() - 0.2
-            t = self.ax.text(xt, yt, text, **text_properties)
-            journey = (journey[0], t)
-        return journey
+
 
     def add_uncertain_gpx_route(self, start, end, npoint, tangential_scatter_sigma, perpendicular_scatter_width,  *args, offset=(0,0), include_line=True, **kwargs):
         if include_line:
@@ -584,7 +378,7 @@ class AnimatedMap(Map):
         self.fog_img = None
 
     def add_label(self, place, offset=(0,0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
-        x, y = self.locations[place]
+        y, x = self.locations[place]
         box = dict(boxstyle='round', facecolor=facecolor, alpha=1, edgecolor=edgecolor)
         label = self.ax.text(x+offset[0], y+offset[1], place, fontsize=14, bbox=box, fontname='Arial', color=textcolor)
         self.labels[place] = label
@@ -601,16 +395,14 @@ class AnimatedMap(Map):
         self.show(points)
         return points
 
-    def _animate_journey(self, journey, time, speed, direction, unmask_radius=0):
+    def _animate_journey(self, journey, time, speed, unmask_radius=0):
         if time is None and speed is None:
             raise ValueError("Set time or speed for animated map journeys")
         elif time is None:
-            time = journey_length(journey) / speed
-        if direction is None:
-            direction = anim.get_best_direction(journey)
+            time = journey.length() / speed
 
         # This hides the journey to start with
-        anim.clip_artists(journey, self.init_rect)
+        journey.hide()
 
         # Work out timing parameters
         end_time = self.current_time + time
@@ -618,39 +410,39 @@ class AnimatedMap(Map):
         end_frame = end_time / self.delta
         print(f"Journey will take from time {self.current_time:.2f} to {end_time:.2f} == frame {start_frame:.1f} to {end_frame:.1f}")
 
-        # If there is a label, make it appear and disappear.  Really need a journey class to do this properly.
-        if len(journey) > 1 and journey[1] is not None:
-            journey[1].set_visible(False)
-            self.timeline.add_transition(anim.make_appear, start_frame, journey[1])
-            self.timeline.add_transition(anim.make_disappear, end_frame, journey[1])
+        # # If there is a label, make it appear and disappear.  Really need a journey class to do this properly.
+        # if len(journey) > 1 and journey[1] is not None:
+        #     journey[1].set_visible(False)
+        #     self.timeline.add_transition(anim.make_appear, start_frame, journey[1])
+        #     self.timeline.add_transition(anim.make_disappear, end_frame, journey[1])
 
-        if (self.fog_img is not None) and unmask_radius:
+        # if (self.fog_img is not None) and unmask_radius:
 
-            def unmask_journey(f):
-                self.unmask_journey(journey, unmask_radius, frac=f)
-                return self.rebuild_fog_of_war()
-            self.timeline.add_fraction_updater(unmask_journey, start_frame, end_frame)
+        #     def unmask_journey(f):
+        #         self.unmask_journey(journey, unmask_radius, frac=f)
+        #         return self.rebuild_fog_of_war()
+        #     self.timeline.add_fraction_updater(unmask_journey, start_frame, end_frame)
 
-        self.timeline.add_fraction_updater(anim.wipe_journey, start_frame, end_frame, self.ax, direction, journey)
+        self.timeline.add_fraction_updater(journey.animate, start_frame, end_frame)
 
 
         # Add the animation to the timeline
-        self.timeline.add_fraction_updater(anim.wipe_journey, start_frame, end_frame, self.ax, direction, journey)
+        # self.timeline.add_fraction_updater(anim.wipe_journey, start_frame, end_frame, self.ax, direction, journey)
         self.current_time = end_time
 
     def add_journey(self, *args, time=None, speed=None, direction=None, fog_clear_radius=0, **kwargs):
         journey = super().add_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
+        self._animate_journey(journey, time, speed, fog_clear_radius)
         return journey
 
     def add_return_journey(self, *args, time=None, speed=None, direction=None, fog_clear_radius=0,**kwargs):
         journey = super().add_return_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
+        self._animate_journey(journey, time, speed, fog_clear_radius)
         return journey
 
-    def add_gpx_route(self, *args, speed=None, time=None, direction=None, fog_clear_radius=0, **kwargs):
-        journey = super().add_gpx_route(*args, **kwargs)
-        self._animate_journey(journey, time, speed, direction, fog_clear_radius)
+    def add_gpx_journey(self, *args, speed=None, time=None, direction=None, fog_clear_radius=0, **kwargs):
+        journey = super().add_gpx_journey(*args, **kwargs)
+        self._animate_journey(journey, time, speed, fog_clear_radius)
         return journey
 
     def save(self, path, **kwargs):
@@ -707,7 +499,7 @@ class AnimatedMap(Map):
                 x0 = x0 + old_offsets[name][0]
                 y0 = y0 + old_offsets[name][1]
                 label = self.labels[name]
-                x1, y1 = self.locations[name]
+                y1, x1 = self.locations[name]
                 x1 += offset[0]
                 y1 += offset[1]
                 x = x0 + frac * (x1 - x0)
