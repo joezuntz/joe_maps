@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.patches
+import geopandas as gpd
 
 def random_point_in_circle(n, center, radius):
 
@@ -71,3 +72,15 @@ def random_point_in_quadrilateral(n, points):
     # build the point set
     points = u * s.T + v * t.T + A.T
     return points.T
+
+
+def geocode(places):
+    locations = gpd.tools.geocode(places, 'Photon', timeout=30)
+    out = []
+    for (_, row) in locations.iterrows():
+        if row.geometry is not None:
+            try:
+                out.append((row.geometry.x, row.geometry.y))
+            except:
+                out.append((0.0, 0.0))
+    return out

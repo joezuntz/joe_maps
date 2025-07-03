@@ -46,7 +46,6 @@ class BaseJourney:
         line = self.artists["line"]
         line.set_xdata(self.x[:n])
         line.set_ydata(self.y[:n])
-        print("Animating journey with fraction:", frac, "points:", n)
 
 
         if "arrow1" in self.artists:
