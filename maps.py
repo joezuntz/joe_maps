@@ -7,6 +7,7 @@ import shapely
 import cartopy.io.img_tiles
 from .journey import ArcJourney, GPXJourney
 from .styles import mmc_colors, basic_map
+from .tiles import TileSuite
 
 
 def add_wiggles_to_path(x, y, wiggles):
@@ -79,8 +80,7 @@ class Map:
         lakes=False,
         ocean_color=None,
         land_color=None,
-        noise_level=None,
-        noise_mask=None,
+        tiler=None,
     ):
         self.fig, self.ax = basic_map(
             lat_min=lat_min,
@@ -98,11 +98,11 @@ class Map:
         self.gpx_routes = {}
         self.labels = {}
         self.journeys = []
-        self._tiler = None
         self.fog_mask = None
         self.fog_img = None
         self.fog_alpha_max = None
         self.fog_array = None
+        self.tile_suite = TileSuite(self.ax, tiler)
 
     @property
     def lat_min(self):
@@ -133,28 +133,6 @@ class Map:
         dy = dy - y0 * ny
         d = np.sqrt(dx**2 + dy**2)
         return d
-
-    def geometry_from_extent(self, extent, crs):
-        x1, x2, y1, y2 = extent
-        domain_in_src_proj = shapely.Polygon(
-            [[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]]
-        )
-        boundary_poly = shapely.Polygon(self.ax.projection.boundary)
-        eroded_boundary = boundary_poly.buffer(-self.ax.projection.threshold)
-        geom_in_src_proj = eroded_boundary.intersection(domain_in_src_proj)
-        geom_in_crs = crs.project_geometry(geom_in_src_proj, self.ax.projection)
-        return geom_in_crs
-
-    def add_tiles(self, zoom_level, extent=None, tiler=None):
-        if tiler is None:
-            if self._tiler is None:
-                self._tiler = cartopy.io.img_tiles.OSM(cache=True)
-            tiler = self._tiler
-        if extent is None:
-            extent = self.ax.get_extent()
-        geometry = self.geometry_from_extent(extent, tiler.crs)
-        img, extent, origin = tiler.image_for_domain(geometry, zoom_level)
-        return self.ax.imshow(img, extent=extent, origin=origin, transform=tiler.crs)
 
     def add_text(
         self,
@@ -376,3 +354,6 @@ class Map:
     def hide_fog_of_war(self):
         self.fog_mask[:] = 0
         return self.rebuild_fog_of_war()
+
+    def add_tiles(self, zoom_level, name=None):
+        return self.tile_suite.add_tiles(zoom_level, name)

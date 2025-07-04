@@ -10,6 +10,7 @@ class Timeline:
         self.fraction_updaters = []
         self.transitions = []
         self.every_frame_updaters = []
+        self.every_frame_between_updaters = []
         # self.time_updaters = []
         # self.abs_time_updaters = []
         self.verbose = verbose
@@ -22,6 +23,9 @@ class Timeline:
 
     def add_every_frame_updater(self, f, *args, **kwargs):
         self.every_frame_updaters.append([f, args, kwargs])
+
+    def add_every_frame_between_updater(self, f, start, end, *args, **kwargs):
+        self.every_frame_between_updaters.append([f, start, end, args, kwargs])
 
     def update(self, f):
         artists = []
@@ -37,18 +41,36 @@ class Timeline:
             else:
                 frac = (f - start) / (end - start)
             frac = np.clip(frac, 0, 1)
-            artists += func(frac, *args, **kwargs)
+            a = func(frac, *args, **kwargs)
+            if (a is None) or any(a is None for a in a):
+                raise ValueError(f"Function {func} return {a}, expected artists")
+            artists += a
             if frac >= 1:
                 self.fraction_updaters[i][-1] = True
         for i, (func, when, args, kwargs, is_done) in enumerate(self.transitions[:]):
             if is_done:
                 continue
             if f >= when:
-                artists += func(*args, **kwargs)
+                a = func(*args, **kwargs)
+                if (a is None) or any(a is None for a in a):
+                    raise ValueError(f"Function {func} return {a}, expected artists")
+                artists += a
                 self.transitions[i][-1] = True
 
         for i, (func, args, kwargs) in enumerate(self.every_frame_updaters):
-            artists += func(f, *args, **kwargs)
+            a = func(f, *args, **kwargs)
+            if (a is None) or any(a is None for a in a):
+                raise ValueError(f"Function {func} return {a}, expected artists")
+            artists += a
+
+        for i, (func, start, end, args, kwargs) in enumerate(self.every_frame_between_updaters):
+            if f < start or f > end:
+                continue
+            a = func(*args, **kwargs)
+            if (a is None) or any(a is None for a in a):
+                raise ValueError(f"Function {func} return {a}, expected artists")
+            artists += a
+            
 
         if self.verbose:
             print(f"Frame {f} updating {len(artists)} artists")

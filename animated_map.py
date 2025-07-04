@@ -230,34 +230,29 @@ class AnimatedMap(Map):
                 [end_x, end_y],
             )
 
+        self.timeline.add_every_frame_between_updater(
+            self.tile_suite.redraw,
+            frame0,
+            frame1,
+        )
+
         self.current_time = t1
         self._current_zoom = end_x, end_y
+            
 
-    def add_tiles(self, zoom_level, extent=None, tiler=None):
-        if extent is None:
-            xlim, ylim = self._current_zoom
-            print("Will add tiles at", xlim, ylim, "at", self.current_time)
-            extent = [xlim[0], xlim[1], ylim[0], ylim[1]]
+    def add_tiles(self, zoom_level, name=None):
+        print("Will add tiles at", self.current_time)
 
         frame = self.current_time / self.delta
         supe = super()
 
         def f():
-            return [supe.add_tiles(zoom_level, extent, tiler)]
+            return [supe.add_tiles(zoom_level, name)]
 
         # only actually add the tiles later when we are at the
         # correct zoom
         self.timeline.add_transition(f, frame)
 
-    def set_uncertain_title(
-        self, titles, start_time, end_time, flicker_period, **kwargs
-    ):
-        """
-        Flicker between possible titles
-        """
-
-        def f(t, **kwargs):
-            pass
 
     def add_animated_fog_of_war(self, nx, alpha=0.5):
         self.add_fog_of_war(nx, alpha=alpha, should_change_each_image=True)

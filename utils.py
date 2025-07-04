@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.patches
 import geopandas as gpd
-
+import shapely
 
 def random_point_in_circle(n, center, radius):
 
@@ -90,3 +90,15 @@ def geocode(places):
             except:
                 out.append((0.0, 0.0))
     return out
+
+def geometry_from_extent(ax, extent, crs):
+    x1, x2, y1, y2 = extent
+    domain_in_src_proj = shapely.Polygon(
+        [[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]]
+    )
+    boundary_poly = shapely.Polygon(ax.projection.boundary)
+    eroded_boundary = boundary_poly.buffer(-ax.projection.threshold)
+    geom_in_src_proj = eroded_boundary.intersection(domain_in_src_proj)
+    geom_in_crs = crs.project_geometry(geom_in_src_proj, ax.projection)
+    return geom_in_crs
+
