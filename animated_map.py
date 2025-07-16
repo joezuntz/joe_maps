@@ -7,13 +7,10 @@ import numpy as np
 
 
 class AnimatedMap(Map):
-    def __init__(self, *args, duration, delta, **kwargs):
+    def __init__(self, *args, delta, **kwargs):
         super().__init__(*args, **kwargs)
-        frames = int(np.ceil(duration / delta))
-        print(f"Animation will have {frames} frames")
         self.delta = delta
-        self.duration = duration
-        self.timeline = anim.Timeline(self.ax, frames=frames)
+        self.timeline = anim.Timeline(self.ax)
         self.init_rect = matplotlib.patches.Rectangle((2, 28), 0.01, 0.01, alpha=0)
         self.ax.add_patch(self.init_rect)
         self.current_time = 0.0
@@ -47,6 +44,19 @@ class AnimatedMap(Map):
         print(f"Showing label {place} at", self.current_time)
         self.show(label)
         return label
+    
+    def add_text(self, place, text, time=None, offset=(0, 0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, **kwargs):
+        text = super().add_text(place, text, offset=offset, facecolor=facecolor, textcolor=textcolor, edgecolor=edgecolor, **kwargs)
+        text.set_visible(False)
+        print(f"Showing text '{text}' at {place} at", self.current_time)
+        self.show(text)
+        if time is not None:
+            frame = (self.current_time + time) / self.delta
+            print(f"Hiding text '{text}' at {place} at", self.current_time + time)
+            self.timeline.add_transition(anim.make_disappear, frame, text)
+            self.current_time += time
+        return text
+    
 
     def add_point(self, place, *args, **kwargs):
         points = super().add_point(place, *args, **kwargs)
@@ -55,7 +65,7 @@ class AnimatedMap(Map):
         self.show(points)
         return points
 
-    def _animate_journey(self, journey, time, speed, unmask_radius=0):
+    def _animate_journey(self, journey, time, speed):
         if time is None and speed is None:
             raise ValueError("Set time or speed for animated map journeys")
         elif time is None:
@@ -72,18 +82,12 @@ class AnimatedMap(Map):
             f"Journey will take from time {self.current_time:.2f} to {end_time:.2f} == frame {start_frame:.1f} to {end_frame:.1f}"
         )
 
-        # # If there is a label, make it appear and disappear.  Really need a journey class to do this properly.
-        # if len(journey) > 1 and journey[1] is not None:
-        #     journey[1].set_visible(False)
-        #     self.timeline.add_transition(anim.make_appear, start_frame, journey[1])
-        #     self.timeline.add_transition(anim.make_disappear, end_frame, journey[1])
 
-        # if (self.fog_img is not None) and unmask_radius:
-
-        #     def unmask_journey(f):
-        #         self.unmask_journey(journey, unmask_radius, frac=f)
-        #         return self.rebuild_fog_of_war()
-        #     self.timeline.add_fraction_updater(unmask_journey, start_frame, end_frame)
+        if self.fog is not None and journey.fog_clearance is not None:
+            def unmask_journey(f):
+                self.fog.unmask_journey(journey, frac=f)
+                return self.fog.redraw()
+            self.timeline.add_fraction_updater(unmask_journey, start_frame, end_frame)
 
         self.timeline.add_fraction_updater(journey.animate, start_frame, end_frame)
 
@@ -92,29 +96,37 @@ class AnimatedMap(Map):
         self.current_time = end_time
 
     def add_journey(
-        self, *args, time=None, speed=None, direction=None, fog_clear_radius=0, **kwargs
+        self, *args, time=None, speed=None, **kwargs
     ):
         journey = super().add_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, fog_clear_radius)
+        self._animate_journey(journey, time, speed)
         return journey
 
     def add_return_journey(
-        self, *args, time=None, speed=None, direction=None, fog_clear_radius=0, **kwargs
+        self, *args, time=None, speed=None, **kwargs
     ):
         journey = super().add_return_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, fog_clear_radius)
+        self._animate_journey(journey, time, speed)
         return journey
 
     def add_gpx_journey(
-        self, *args, speed=None, time=None, direction=None, fog_clear_radius=0, **kwargs
+        self, *args, speed=None, time=None,  **kwargs
     ):
         journey = super().add_gpx_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, fog_clear_radius)
+        self._animate_journey(journey, time, speed)
+        return journey
+    
+    def add_band_journey(
+        self, *args, time=None, speed=None, **kwargs):
+        journey = super().add_band_journey(*args, **kwargs)
+        self._animate_journey(journey, time, speed)
         return journey
 
     def save(self, path, **kwargs):
         interval = self.delta * 1000
-        self.timeline.save(self.fig, path, interval=interval, **kwargs)
+        frames = int(np.ceil(self.current_time / self.delta)) + 1
+        print(f"Animation will have {frames} frames")
+        self.timeline.save(self.fig, path, interval=interval, frames=frames, **kwargs)
 
     def delay_last_transition(self):
         self.timeline.transitions[-1][1] = self.current_time / self.delta
@@ -205,6 +217,9 @@ class AnimatedMap(Map):
     def wait(self, time):
         self.current_time += time
 
+    def rewind(self, time):
+        self.current_time -= time
+
     def zoom(self, lat_min, lon_min, lat_max, lon_max, time):
         t0 = self.current_time
         start_x, start_y = self._current_zoom
@@ -219,16 +234,16 @@ class AnimatedMap(Map):
         self.timeline.add_fraction_updater(
             anim.zoom_to, frame0, frame1, self.ax, [start_x, start_y], [end_x, end_y]
         )
-        if self.fog_mask is not None:
-            # zoom the fog of war too?
-            self.timeline.add_fraction_updater(
-                anim.zoom_extent,
-                frame0,
-                frame1,
-                self.fog_img,
-                [start_x, start_y],
-                [end_x, end_y],
-            )
+        # if self.fog_mask is not None:
+        #     # zoom the fog of war too?
+        #     self.timeline.add_fraction_updater(
+        #         anim.zoom_extent,
+        #         frame0,
+        #         frame1,
+        #         self.fog_img,
+        #         [start_x, start_y],
+        #         [end_x, end_y],
+        #     )
 
         self.timeline.add_every_frame_between_updater(
             self.tile_suite.redraw,
@@ -238,20 +253,43 @@ class AnimatedMap(Map):
 
         self.current_time = t1
         self._current_zoom = end_x, end_y
-            
 
-    def add_tiles(self, zoom_level, name=None):
-        print("Will add tiles at", self.current_time)
+    def fade_between_tiles(self, level0, level1, time):
+        start_frame = self.current_time / self.delta
+        end_frame = (self.current_time + time) / self.delta
+        print(f"Fade between tile levels {level0}-{level1} from time {self.current_time} to {self.current_time + time}")
 
-        frame = self.current_time / self.delta
-        supe = super()
+        def f(frac):
+            self.tile_suite.set_alpha(level0, 1 - frac)
+            self.tile_suite.set_alpha(level1, frac)
+            return self.tile_suite.redraw()
 
-        def f():
-            return [supe.add_tiles(zoom_level, name)]
+        self.timeline.add_fraction_updater(f, start_frame, end_frame)
+        self.current_time += time
 
-        # only actually add the tiles later when we are at the
-        # correct zoom
-        self.timeline.add_transition(f, frame)
+    def fade_out_tiles(self, level, time):
+        start_frame = self.current_time / self.delta
+        end_frame = (self.current_time + time) / self.delta
+        self.current_time += time
+        print(f"Fade out tiles from time {self.current_time} to {self.current_time + time}")
+
+        def f(frac):
+            self.tile_suite.set_alpha(level, 1 - frac)
+            return self.tile_suite.redraw()
+
+        self.timeline.add_fraction_updater(f, start_frame, end_frame)
+
+    def fade_in_tiles(self, level, time):
+        start_frame = self.current_time / self.delta
+        end_frame = (self.current_time + time) / self.delta
+        print(f"Fade in tiles from time {self.current_time} to {self.current_time + time}")
+        self.current_time += time
+
+        def f(frac):
+            self.tile_suite.set_alpha(level, frac)
+            return self.tile_suite.redraw()
+
+        self.timeline.add_fraction_updater(f, start_frame, end_frame)
 
 
     def add_animated_fog_of_war(self, nx, alpha=0.5):
@@ -292,3 +330,16 @@ class AnimatedMap(Map):
             return supe.reset_fog_of_war()
 
         self.timeline.add_transition(f, self.current_time / self.delta)
+
+    def add_fog(self, nx, alpha=0.5, animated=True):
+        fog = super().add_fog(nx, alpha=alpha, animated=animated)
+
+        # if the fog is animated then we need to update it every frame
+        # any of our journeys will also update the fog
+        if fog.animated:
+            # The frame argument is ignored by the fog
+            # for now but I might want it later if we want
+            # fancier fog effects
+            def f(frame):
+                return fog.redraw()
+            self.timeline.add_every_frame_updater(f)

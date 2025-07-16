@@ -4,9 +4,9 @@ import numpy as np
 
 
 class Timeline:
-    def __init__(self, ax, frames, verbose=True):
+    def __init__(self, ax, verbose=True):
         self.ax = ax
-        self.frames = frames
+        # self.frames = frames
         self.fraction_updaters = []
         self.transitions = []
         self.every_frame_updaters = []
@@ -73,22 +73,21 @@ class Timeline:
             
 
         if self.verbose:
-            print(f"Frame {f} updating {len(artists)} artists")
+            print(f"Frame {f} updating {len(artists)} artists:", 
+                  ", ".join(str(a) for a in artists))
 
         return artists
 
-    def save_frames(self, root, frames=None):
-        if frames is None:
-            frames = self.frames
+    def save_frames(self, root, frames):
         if type(frames) == int:
             frames = range(frames)
         for i in frames:
             self.update(i)
             self.ax.figure.savefig(f"{root}{i:05}.png")
 
-    def save(self, fig, filename, interval=200, **kwargs):
+    def save(self, fig, filename, frames, interval=200, **kwargs):
         ani = FuncAnimation(
-            fig, self.update, interval=interval, frames=self.frames, blit=True
+            fig, self.update, interval=interval, frames=frames, blit=True
         )
         ani.save(filename, **kwargs)
 

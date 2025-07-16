@@ -5,9 +5,11 @@ import matplotlib.patheffects as PathEffects
 import numpy as np
 import shapely
 import cartopy.io.img_tiles
-from .journey import ArcJourney, GPXJourney
+from .journey import ArcJourney, GPXJourney, BandedArcJourney, interpolate_journey
 from .styles import mmc_colors, basic_map
 from .tiles import TileSuite
+from .fog import FogOfWar
+from . import zorders
 
 
 def add_wiggles_to_path(x, y, wiggles):
@@ -28,17 +30,6 @@ def add_wiggles_to_path(x, y, wiggles):
     x[1:-1] += (wiggle_size * np.cos(phase) * np.cos(dperp))[1:]
     y[1:-1] += (wiggle_size * np.cos(phase) * np.sin(dperp))[1:]
     return x, y
-
-
-def interpolate_journey(x: np.ndarray, y: np.ndarray, n: int):
-    # interpolate evenly onto the path defined by x and y
-    d = np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2)
-    d = np.concatenate(([0], d))
-    cum_d = np.cumsum(d)
-    t = np.linspace(0, cum_d[-1], n)
-    x_interp = np.interp(t, cum_d, x)
-    y_interp = np.interp(t, cum_d, y)
-    return x_interp, y_interp
 
 
 def jitter_point_cloud(x, y, npoint, jitter_tan_range, jitter_perp_sigma):
@@ -98,11 +89,19 @@ class Map:
         self.gpx_routes = {}
         self.labels = {}
         self.journeys = []
-        self.fog_mask = None
-        self.fog_img = None
-        self.fog_alpha_max = None
-        self.fog_array = None
         self.tile_suite = TileSuite(self.ax, tiler)
+        self.fog = None
+
+    def add_fog(self, nx, alpha=0.5, animated=True):
+        """
+        Add a fog layer to the map.
+        """
+        if self.fog is not None:
+            raise ValueError("Fog layer already exists. Use `reset_fog` to reset it.")
+
+        self.fog = FogOfWar(nx, self.ax, alpha=alpha, animated=True)
+        self.fog.draw()
+        return self.fog
 
     @property
     def lat_min(self):
@@ -123,28 +122,22 @@ class Map:
     def add_locations(self, places):
         self.locations.update(places)
 
-    def distance_map_from_point(self, lon, lat, nx, ny):
-        x0, y0 = self.ax.transData.transform([lon, lat])
-        x0, y0 = self.ax.transAxes.inverted().transform([x0, y0])
-        dx = np.arange(nx)
-        dy = np.arange(ny)
-        dx, dy = np.meshgrid(dx, dy)
-        dx = dx - x0 * nx
-        dy = dy - y0 * ny
-        d = np.sqrt(dx**2 + dy**2)
-        return d
 
     def add_text(
         self,
-        x,
-        y,
+        place,
         text,
         offset=(0, 0),
         facecolor=mmc_colors.wheat,
         textcolor=mmc_colors.dark_blue,
         edgecolor=mmc_colors.dark_blue,
+        zorder=zorders.LABELS,
         **kwargs,
     ):
+        if isinstance(place, str):
+            y, x = self.locations[place]
+        else:
+            y, x = place
         box = dict(boxstyle="round", facecolor=facecolor, alpha=1, edgecolor=edgecolor)
         return self.ax.text(
             x + offset[0],
@@ -154,6 +147,7 @@ class Map:
             bbox=box,
             fontname="Arial",
             color=textcolor,
+            zorder=zorder,
         )
 
     def add_label(
@@ -194,57 +188,83 @@ class Map:
             offset = offsets.get(location, (0.4, 0))
             self.add_label(location, offset)
 
-    def add_journey(self, start, end, **kwargs):
+    def add_journey(self, start, end, label=None, label_args={}, **kwargs):
         lat_start, lon_start = self.locations[start]
         lat_end, lon_end = self.locations[end]
         journey = ArcJourney(lat_start, lon_start, lat_end, lon_end, **kwargs)
+        journey.add_label(self.ax, label, **label_args)
         journey.draw(self.ax)
         self.journeys.append(journey)
         return journey
-
-    def add_gpx_journey(self, gpx_file, **kwargs):
+    
+    def add_gpx_journey(self, gpx_file, label=None, label_args={}, **kwargs):
         journey = GPXJourney(gpx_file, **kwargs)
+        journey.add_label(self.ax, label, **label_args)
         journey.draw(self.ax)
         self.journeys.append(journey)
         return journey
-
-    def add_uncertain_journey(
+    
+    def add_band_journey(
         self,
         start,
         end,
-        npoint,
-        tangential_scatter_sigma,
-        perpendicular_scatter_width,
-        *args,
-        theta=0,
-        start_gap=0.03,
-        end_gap=0.03,
-        lw=3,
-        include_line=True,
-        **kwargs,
+        theta_width,
+        label=None,
+        label_args={},
+        **kwargs
     ):
-        # optional line under the points
-        if include_line:
-            self.add_journey(
-                start,
-                end,
-                theta=theta,
-                start_gap=start_gap,
-                end_gap=end_gap,
-                lw=lw,
-                **kwargs,
-            )
-        x, y = self.get_path(
-            start, end, theta=theta, end_gap=end_gap, start_gap=start_gap
+        lat_start, lon_start = self.locations[start]
+        lat_end, lon_end = self.locations[end]
+        journey = BandedArcJourney(
+            lat_start,
+            lon_start,
+            lat_end,
+            lon_end,
+            theta_width=theta_width,
+            **kwargs
         )
-        x, y = jitter_point_cloud(
-            x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
-        )
-        # don't want to include this
-        ls = kwargs.pop("linestyle", None)
-        (journey,) = self.ax.plot(x, y, *args, **kwargs)
+        journey.add_label(self.ax, label, **label_args)
+        journey.draw(self.ax)
         self.journeys.append(journey)
-        return journey
+        return journey            
+
+    # def add_uncertain_journey(
+    #     self,
+    #     start,
+    #     end,
+    #     npoint,
+    #     tangential_scatter_sigma,
+    #     perpendicular_scatter_width,
+    #     *args,
+    #     theta=0,
+    #     start_gap=0.03,
+    #     end_gap=0.03,
+    #     lw=3,
+    #     include_line=True,
+    #     **kwargs,
+    # ):
+    #     # optional line under the points
+    #     if include_line:
+    #         self.add_journey(
+    #             start,
+    #             end,
+    #             theta=theta,
+    #             start_gap=start_gap,
+    #             end_gap=end_gap,
+    #             lw=lw,
+    #             **kwargs,
+    #         )
+    #     x, y = self.get_path(
+    #         start, end, theta=theta, end_gap=end_gap, start_gap=start_gap
+    #     )
+    #     x, y = jitter_point_cloud(
+    #         x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
+    #     )
+    #     # don't want to include this
+    #     ls = kwargs.pop("linestyle", None)
+    #     (journey,) = self.ax.plot(x, y, *args, **kwargs)
+    #     self.journeys.append(journey)
+    #     return journey
 
     # def add_return_journey(self, journey, lw=3, **kwargs):
     #     x = journey[0].get_xdata()[::-1]
@@ -253,107 +273,32 @@ class Map:
     #     self.journeys.append(journey)
     #     return journey
 
-    def add_uncertain_gpx_route(
-        self,
-        start,
-        end,
-        npoint,
-        tangential_scatter_sigma,
-        perpendicular_scatter_width,
-        *args,
-        offset=(0, 0),
-        include_line=True,
-        **kwargs,
-    ):
-        if include_line:
-            self.add_gpx_route(start, end, *args, offset=offset, **kwargs)
-        x, y = self.gpx_routes[start, end]
-        x, y = jitter_point_cloud(
-            x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
-        )
-        (journey,) = self.ax.plot(x, y, *args, **kwargs)
-        self.journeys.append([journey])
-        return journey
+    # def add_uncertain_gpx_route(
+    #     self,
+    #     start,
+    #     end,
+    #     npoint,
+    #     tangential_scatter_sigma,
+    #     perpendicular_scatter_width,
+    #     *args,
+    #     offset=(0, 0),
+    #     include_line=True,
+    #     **kwargs,
+    # ):
+    #     if include_line:
+    #         self.add_gpx_route(start, end, *args, offset=offset, **kwargs)
+    #     x, y = self.gpx_routes[start, end]
+    #     x, y = jitter_point_cloud(
+    #         x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
+    #     )
+    #     (journey,) = self.ax.plot(x, y, *args, **kwargs)
+    #     self.journeys.append([journey])
+    #     return journey
 
     def set_title(self, title, **kwargs):
         self.ax.set_title(title, **kwargs)
 
-    def unmask_circle(self, x, y, r, mask=None):
-        if mask is None:
-            mask = self.fog_mask
 
-        ny, nx = mask.shape
-
-        mask_i = self.distance_map_from_point(x, y, nx, ny)
-        mask_i = 1 - np.exp(-(mask_i**2) / 2 / r**2)
-        np.minimum(mask, mask_i, out=mask)
-        return mask
-
-    def unmask_journey(self, journey, r, mask=None, frac=None):
-        if mask is None:
-            mask = self.fog_mask
-
-        ny, nx = mask.shape
-
-        line = journey[0]
-        x = line.get_xdata()
-        y = line.get_ydata()
-        if frac is not None:
-            x = x[: int(frac * len(x))]
-            y = y[: int(frac * len(y))]
-
-        for xi, yi in zip(x, y):
-            mask_i = self.distance_map_from_point(xi, yi, nx, ny)
-            mask_i = 1 - np.exp(-(mask_i**2) / 2 / r**2)
-            np.minimum(mask, mask_i, out=mask)
-
-        return mask
-
-    def add_fog_of_war(self, nx, alpha=0.5, should_change_each_image=True):
-        (lon_min, lon_max), (lat_min, lat_max) = self._current_zoom
-        ny = int((lat_max - lat_min) / (lon_max - lon_min) * nx)
-        fog = np.random.uniform(0, 1, (ny, nx))
-        self.fog_is_animated = should_change_each_image
-        fog_rgba = np.zeros((ny, nx, 4))
-        fog_rgba[:, :, 0] = fog
-        fog_rgba[:, :, 1] = fog
-        fog_rgba[:, :, 2] = fog
-        fog_rgba[:, :, 3] = alpha
-        self.fog_array = fog_rgba
-        extent = [lon_min, lon_max, lat_min, lat_max]
-        self.fog_alpha_max = alpha
-        self.fog_img = self.ax.imshow(
-            self.fog_array,
-            cmap="Greys",
-            extent=extent,
-            interpolation="nearest",
-            origin="lower",
-        )
-        self.fog_mask = np.ones((ny, nx))
-
-    def rebuild_fog_of_war(self):
-        if self.fog_img is None:
-            return
-        ny, nx = self.fog_mask.shape
-
-        # we might want fog that just vanishes but is otherwise
-        # fixed
-        if self.fog_is_animated:
-            fog = np.random.uniform(0, 1, (ny, nx))
-            self.fog_array[:, :, 0] = fog
-            self.fog_array[:, :, 1] = fog
-            self.fog_array[:, :, 2] = fog
-        self.fog_array[:, :, 3] = self.fog_mask * self.fog_alpha_max
-        self.fog_img.set_data(self.fog_array)
-        return (self.fog_img,)
-
-    def reset_fog_of_war(self):
-        self.fog_mask[:] = 1
-        return self.rebuild_fog_of_war()
-
-    def hide_fog_of_war(self):
-        self.fog_mask[:] = 0
-        return self.rebuild_fog_of_war()
-
-    def add_tiles(self, zoom_level, name=None):
-        return self.tile_suite.add_tiles(zoom_level, name)
+    def add_tile_level(self, zoom_level, alpha=1.0):
+        self.tile_suite.add_level(zoom_level, alpha=alpha)
+        self.tile_suite.redraw()
