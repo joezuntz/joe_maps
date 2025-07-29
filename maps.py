@@ -6,7 +6,7 @@ import numpy as np
 import shapely
 import cartopy.io.img_tiles
 from .journey import ArcJourney, GPXJourney, BandedArcJourney, interpolate_journey
-from .styles import mmc_colors, basic_map
+from .styles import mmc_colors, basic_map, PC
 from .tiles import TileSuite
 from .fog import FogOfWar
 from . import zorders
@@ -69,8 +69,14 @@ class Map:
         coast_color="grey",
         border_color="grey",
         lakes=False,
+        land=True,
+        ocean=True,
+        rivers=False,
+        coast=True,
+
         ocean_color=None,
         land_color=None,
+        projection=None,
         tiler=None,
     ):
         self.fig, self.ax = basic_map(
@@ -83,7 +89,12 @@ class Map:
             land_color=land_color,
             coast_color=coast_color,
             border_color=border_color,
+            coast=coast,
+            land=land,
+            ocean=ocean,
+            rivers=rivers,
             lakes=lakes,
+            projection=projection,
         )
         self.locations = {}
         self.gpx_routes = {}
@@ -92,32 +103,17 @@ class Map:
         self.tile_suite = TileSuite(self.ax, tiler)
         self.fog = None
 
-    def add_fog(self, nx, alpha=0.5, animated=True):
+    def add_fog(self, nx, alpha=0.5, animated=True, smoothing=0):
         """
         Add a fog layer to the map.
         """
         if self.fog is not None:
             raise ValueError("Fog layer already exists. Use `reset_fog` to reset it.")
 
-        self.fog = FogOfWar(nx, self.ax, alpha=alpha, animated=True)
+        self.fog = FogOfWar(nx, self.ax, alpha=alpha, animated=animated, smoothing=smoothing)
         self.fog.draw()
         return self.fog
 
-    @property
-    def lat_min(self):
-        return self.ax.get_ylim()[0]
-
-    @property
-    def lat_max(self):
-        return self.ax.get_ylim()[1]
-
-    @property
-    def lon_min(self):
-        return self.ax.get_xlim()[0]
-
-    @property
-    def lon_max(self):
-        return self.ax.get_xlim()[1]
 
     def add_locations(self, places):
         self.locations.update(places)
@@ -132,22 +128,31 @@ class Map:
         textcolor=mmc_colors.dark_blue,
         edgecolor=mmc_colors.dark_blue,
         zorder=zorders.LABELS,
+        fontname="Arial",
+        fontsize=14,
+        bbox=True,
         **kwargs,
     ):
         if isinstance(place, str):
             y, x = self.locations[place]
         else:
             y, x = place
-        box = dict(boxstyle="round", facecolor=facecolor, alpha=1, edgecolor=edgecolor)
+
+        if bbox:
+            box = dict(boxstyle="round", facecolor=facecolor, alpha=1, edgecolor=edgecolor)
+        else:
+            box = None
+
         return self.ax.text(
             x + offset[0],
             y + offset[1],
             text,
-            fontsize=14,
+            fontsize=fontsize,
             bbox=box,
-            fontname="Arial",
+            fontname=fontname,
             color=textcolor,
             zorder=zorder,
+            transform=PC,
         )
 
     def add_label(
@@ -161,8 +166,7 @@ class Map:
     ):
         y, x = self.locations[place]
         label = self.add_text(
-            x,
-            y,
+            (y, x),
             place,
             offset=offset,
             facecolor=facecolor,
@@ -175,7 +179,7 @@ class Map:
 
     def add_point(self, place, *args, **kwargs):
         y, x = self.locations[place]
-        return self.ax.plot(x, y, *args, **kwargs)[0]
+        return self.ax.plot(x, y, *args, transform=PC, **kwargs)[0]
 
     def add_all_points(self, *args, **kwargs):
         for location in self.locations:
@@ -185,8 +189,8 @@ class Map:
         if offsets is None:
             offsets = {}
         for location in self.locations:
-            offset = offsets.get(location, (0.4, 0))
-            self.add_label(location, offset)
+            offset = offsets.get(location, (0.0, 0))
+            self.add_label(location, offset=offset)
 
     def add_journey(self, start, end, label=None, label_args={}, **kwargs):
         lat_start, lon_start = self.locations[start]
@@ -228,72 +232,6 @@ class Map:
         self.journeys.append(journey)
         return journey            
 
-    # def add_uncertain_journey(
-    #     self,
-    #     start,
-    #     end,
-    #     npoint,
-    #     tangential_scatter_sigma,
-    #     perpendicular_scatter_width,
-    #     *args,
-    #     theta=0,
-    #     start_gap=0.03,
-    #     end_gap=0.03,
-    #     lw=3,
-    #     include_line=True,
-    #     **kwargs,
-    # ):
-    #     # optional line under the points
-    #     if include_line:
-    #         self.add_journey(
-    #             start,
-    #             end,
-    #             theta=theta,
-    #             start_gap=start_gap,
-    #             end_gap=end_gap,
-    #             lw=lw,
-    #             **kwargs,
-    #         )
-    #     x, y = self.get_path(
-    #         start, end, theta=theta, end_gap=end_gap, start_gap=start_gap
-    #     )
-    #     x, y = jitter_point_cloud(
-    #         x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
-    #     )
-    #     # don't want to include this
-    #     ls = kwargs.pop("linestyle", None)
-    #     (journey,) = self.ax.plot(x, y, *args, **kwargs)
-    #     self.journeys.append(journey)
-    #     return journey
-
-    # def add_return_journey(self, journey, lw=3, **kwargs):
-    #     x = journey[0].get_xdata()[::-1]
-    #     y = journey[0].get_ydata()[::-1]
-    #     journey = add_journey(self.ax, None, None, None, None, path_x=x, path_y=y, lw=lw, **kwargs)
-    #     self.journeys.append(journey)
-    #     return journey
-
-    # def add_uncertain_gpx_route(
-    #     self,
-    #     start,
-    #     end,
-    #     npoint,
-    #     tangential_scatter_sigma,
-    #     perpendicular_scatter_width,
-    #     *args,
-    #     offset=(0, 0),
-    #     include_line=True,
-    #     **kwargs,
-    # ):
-    #     if include_line:
-    #         self.add_gpx_route(start, end, *args, offset=offset, **kwargs)
-    #     x, y = self.gpx_routes[start, end]
-    #     x, y = jitter_point_cloud(
-    #         x, y, npoint, tangential_scatter_sigma, perpendicular_scatter_width
-    #     )
-    #     (journey,) = self.ax.plot(x, y, *args, **kwargs)
-    #     self.journeys.append([journey])
-    #     return journey
 
     def set_title(self, title, **kwargs):
         self.ax.set_title(title, **kwargs)

@@ -1,6 +1,7 @@
 from matplotlib.animation import FuncAnimation
 import matplotlib.patches as patches
 import numpy as np
+from .styles import PC
 
 
 class Timeline:
@@ -70,11 +71,16 @@ class Timeline:
             if (a is None) or any(a is None for a in a):
                 raise ValueError(f"Function {func} return {a}, expected artists")
             artists += a
+
+
+        # Remove duplicates
+        artists = list(set(artists))
             
 
         if self.verbose:
             print(f"Frame {f} updating {len(artists)} artists:", 
                   ", ".join(str(a) for a in artists))
+            
 
         return artists
 
@@ -103,70 +109,70 @@ def clip_artists(artists, patch):
                 continue
 
 
-def wipe_journey(frac, ax, direction, artists):
-    # Find the extents of the line to show us
-    # the overall bounding box
-    line = artists[0]
-    xmin = line.get_xdata().min()
-    xmax = line.get_xdata().max()
-    ymin = line.get_ydata().min()
-    ymax = line.get_ydata().max()
+# def wipe_journey(frac, ax, direction, artists):
+#     # Find the extents of the line to show us
+#     # the overall bounding box
+#     line = artists[0]
+#     xmin = line.get_xdata().min()
+#     xmax = line.get_xdata().max()
+#     ymin = line.get_ydata().min()
+#     ymax = line.get_ydata().max()
 
-    # If there is an arrowhead, include it in the
-    # dimensions to start/end the wipe
-    if len(artists) > 2:
-        arr = artists[2]
-        if arr is not None:
-            arr_xy = arr.get_xy()
-            xmin = min(xmin, arr_xy[:, 0].min())
-            xmax = max(xmax, arr_xy[:, 0].max())
-            ymin = min(ymin, arr_xy[:, 1].min())
-            ymax = max(ymax, arr_xy[:, 1].max())
+#     # If there is an arrowhead, include it in the
+#     # dimensions to start/end the wipe
+#     if len(artists) > 2:
+#         arr = artists[2]
+#         if arr is not None:
+#             arr_xy = arr.get_xy()
+#             xmin = min(xmin, arr_xy[:, 0].min())
+#             xmax = max(xmax, arr_xy[:, 0].max())
+#             ymin = min(ymin, arr_xy[:, 1].min())
+#             ymax = max(ymax, arr_xy[:, 1].max())
 
-    buffer = 0.01
-    bx = (xmax - xmin) * buffer
-    by = (ymax - ymin) * buffer
-    xmin -= bx
-    xmax += bx
-    ymin -= by
-    ymax += by
+#     buffer = 0.01
+#     bx = (xmax - xmin) * buffer
+#     by = (ymax - ymin) * buffer
+#     xmin -= bx
+#     xmax += bx
+#     ymin -= by
+#     ymax += by
 
-    # determine the box we will use to unmask
-    # the journey
-    if direction == "right":
-        x = xmin
-        y = ymin
-        wx = (xmax - xmin) * frac
-        wy = ymax - ymin
-    elif direction == "left":
-        x = xmax
-        y = ymax
-        wx = -(xmax - xmin) * frac
-        wy = -(ymax - ymin)
-    elif direction == "up":
-        x = xmin
-        y = ymin
-        wx = xmax - xmin
-        wy = (ymax - ymin) * frac
-    elif direction == "down":
-        x = xmax
-        y = ymax
-        wx = -(xmax - xmin)
-        wy = -(ymax - ymin) * frac
-    else:
-        raise ValueError("Bad direction")
+#     # determine the box we will use to unmask
+#     # the journey
+#     if direction == "right":
+#         x = xmin
+#         y = ymin
+#         wx = (xmax - xmin) * frac
+#         wy = ymax - ymin
+#     elif direction == "left":
+#         x = xmax
+#         y = ymax
+#         wx = -(xmax - xmin) * frac
+#         wy = -(ymax - ymin)
+#     elif direction == "up":
+#         x = xmin
+#         y = ymin
+#         wx = xmax - xmin
+#         wy = (ymax - ymin) * frac
+#     elif direction == "down":
+#         x = xmax
+#         y = ymax
+#         wx = -(xmax - xmin)
+#         wy = -(ymax - ymin) * frac
+#     else:
+#         raise ValueError("Bad direction")
 
-    # The rectangle has to be added to the plot
-    # before using it to clip the journey, I guess so
-    # that it is in the right coordinates
-    rect = patches.Rectangle((x, y), wx, wy, alpha=0)
-    ax.add_patch(rect)
+#     # The rectangle has to be added to the plot
+#     # before using it to clip the journey, I guess so
+#     # that it is in the right coordinates
+#     rect = patches.Rectangle((x, y), wx, wy, alpha=0)
+#     ax.add_patch(rect)
 
-    # Clip everything. Does not work for text - bug in matplotlib
-    clip_artists(artists, rect)
+#     # Clip everything. Does not work for text - bug in matplotlib
+#     clip_artists(artists, rect)
 
-    # Return everything that might be animated
-    return [a for a in artists if a is not None]
+#     # Return everything that might be animated
+#     return [a for a in artists if a is not None]
 
 
 def zoom_to(frac, ax, starts, ends):
@@ -178,8 +184,7 @@ def zoom_to(frac, ax, starts, ends):
     xmax = start_x[1] + frac * (end_x[1] - start_x[1])
     ymin = start_y[0] + frac * (end_y[0] - start_y[0])
     ymax = start_y[1] + frac * (end_y[1] - start_y[1])
-    ax.set_xlim(xmin, xmax)
-    ax.set_ylim(ymin, ymax)
+    ax.set_extent([xmin, xmax, ymin, ymax], crs=PC)
     return [ax.figure]
 
 
@@ -192,30 +197,30 @@ def zoom_extent(frac, obj, starts, ends):
     xmax = start_x[1] + frac * (end_x[1] - start_x[1])
     ymin = start_y[0] + frac * (end_y[0] - start_y[0])
     ymax = start_y[1] + frac * (end_y[1] - start_y[1])
-    obj.set_extent([xmin, xmax, ymin, ymax])
+    obj.set_extent([xmin, xmax, ymin, ymax], crs=PC)
     return [obj]
 
 
-def get_best_direction(j):
-    x = j[0].get_xdata()
-    y = j[0].get_ydata()
-    dx = x[-1] - x[0]
-    dy = y[-1] - y[0]
-    if abs(dy) > abs(dx):
-        return "up" if dy > 0 else "down"
-    else:
-        return "right" if dx > 0 else "left"
+# def get_best_direction(j):
+#     x = j[0].get_xdata()
+#     y = j[0].get_ydata()
+#     dx = x[-1] - x[0]
+#     dy = y[-1] - y[0]
+#     if abs(dy) > abs(dx):
+#         return "up" if dy > 0 else "down"
+#     else:
+#         return "right" if dx > 0 else "left"
 
 
-def add_label(ax, locations, place, off=(0, 0)):
-    x, y = locations[place]
-    c1 = mmc_colors.dark_blue
-    box = dict(
-        boxstyle="round", facecolor=jm.maps.mmc_colors.wheat, alpha=1, edgecolor=c1
-    )
-    return ax.text(
-        x + off[0], y + off[1], place, fontsize=16, bbox=box, fontname="Muli", color=c1
-    )
+# def add_label(ax, locations, place, off=(0, 0)):
+#     x, y = locations[place]
+#     c1 = mmc_colors.dark_blue
+#     box = dict(
+#         boxstyle="round", facecolor=jm.maps.mmc_colors.wheat, alpha=1, edgecolor=c1
+#     )
+#     return ax.text(
+#         x + off[0], y + off[1], place, fontsize=16, bbox=box, fontname="Muli", color=c1, transform=PC
+#     )
 
 
 # def set_blurring(art, sigma, weight):
@@ -258,6 +263,6 @@ def fade_out(frac, *things):
     return things
 
 
-def interpolate_blurring(frac, art, sigma, weight1, weight2):
-    weight = frac * weight2 + (1 - frac) * weight1
-    return set_blurring(art, sigma, weight)
+# def interpolate_blurring(frac, art, sigma, weight1, weight2):
+#     weight = frac * weight2 + (1 - frac) * weight1
+#     return set_blurring(art, sigma, weight)

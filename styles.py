@@ -5,6 +5,9 @@ import cartopy.feature
 import matplotlib.pyplot as plt
 
 
+PC = ccrs.PlateCarree()
+
+
 def make_color(r, g, b, a=255):
     return (r / 255.0, g / 255.0, b / 255.0, a / 255.0)
 
@@ -27,6 +30,7 @@ def basic_map(
     lat_max,
     lon_min,
     lon_max,
+    land=True,
     rivers=False,
     lakes=True,
     ocean=True,
@@ -36,20 +40,28 @@ def basic_map(
     ocean_color=None,
     border_color="darkgrey",
     figsize=(16, 16),
+    projection=None,
+    limits_already_transformed=False,
 ):
-    projection = ccrs.PlateCarree()
+    
+    if projection is None:
+        projection = ccrs.PlateCarree()
     fig = plt.figure(figsize=figsize)
     ax = plt.axes(projection=projection)
 
     if coast:
         ax.coastlines(color=coast_color)
 
-    ax.set_extent([lon_min, lon_max, lat_min, lat_max])
-
-    if land_color is None:
-        ax.add_feature(cartopy.feature.LAND)
+    if limits_already_transformed:
+        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=projection)
     else:
-        ax.add_feature(cartopy.feature.LAND, color=land_color)
+        ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=PC)
+
+    if land:
+        if land_color is None:
+            ax.add_feature(cartopy.feature.LAND)
+        else:
+            ax.add_feature(cartopy.feature.LAND, color=land_color)
 
     if lakes:
         ax.add_feature(cartopy.feature.LAKES)

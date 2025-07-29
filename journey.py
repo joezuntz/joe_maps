@@ -5,7 +5,7 @@ import gpxpy
 from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 from . import anim
-from .styles import mmc_colors
+from .styles import mmc_colors, PC
 
 LABEL_KIND_PERMANENT = "permanent"
 LABEL_KIND_TRANSIENT = "transient"
@@ -25,6 +25,8 @@ class BaseJourney:
         self.y = y.copy()
         self.label_kind = None
         self.fog_clearance = fog_clearance
+        self.initial_alphas = None
+
 
     def draw(self, ax):
         raise NotImplementedError("This method should be implemented in subclasses")
@@ -55,13 +57,14 @@ class BaseJourney:
         x += offset[0]
         y += offset[1]
         box = dict(boxstyle="round", facecolor=facecolor, edgecolor=edgecolor, alpha=kwargs.get("alpha", 1.0))
-        text = ax.text(x, y, label, ha='left', va='center', bbox=box, **kwargs)
+        text = ax.text(x, y, label, ha='left', va='center', bbox=box, transform=PC, **kwargs)
         self.artists["label"] = text
         self.label_kind = kwargs.get("label_kind", LABEL_KIND_TRANSIENT)
 
     def hide(self):
         for artist in self.artists.values():
             artist.set_visible(False)
+        return self.artists.values()
 
     def show(self):
         """
@@ -69,6 +72,7 @@ class BaseJourney:
         """
         for artist in self.artists.values():
             artist.set_visible(True)
+        return self.artists.values()
 
     def animate(self, frac):
         if frac > 0:
@@ -105,6 +109,14 @@ class BaseJourney:
         # Return everything that might be animated
         return list(self.artists.values())
     
+    def fade_out(self, frac):
+        if self.initial_alphas is None:
+            self.initial_alphas = {k: a.get_alpha() for k, a in self.artists.items()}
+        for k, a in self.artists.items():
+            if a.get_visible():
+                alpha = self.initial_alphas[k] * (1 - frac)
+                a.set_alpha(alpha)
+    
     def animate_label(self, frac):
         if "label" in self.artists:
             label = self.artists["label"]
@@ -128,7 +140,7 @@ class BaseJourney:
         return d
         
 
-    def add_arrows(self, line, x, y, arrow_location="end", arrow_headwidth=0.02):
+    def add_arrows(self, line, x, y, arrow_location="end", arrow_headwidth=0.02, arrow_length=0.1):
         artists = {}
         if arrow_location is None:
             return artists
@@ -153,7 +165,16 @@ class BaseJourney:
             yarrow = y[1] - dy
         else:
             raise ValueError(f"Unknown arrow location: {arrow_location}")
+
+        if (dx == 0) and (dy == 0):
+            raise ValueError("Cannot add arrow with zero length")
         
+        # set the length as a fixed value
+        # Normalize the direction vector
+        norm = np.sqrt(dx**2 + dy**2)
+        dx *= arrow_length / norm
+        dy *= arrow_length / norm
+
         arr1 = mpatches.FancyArrow(
             xarrow,
             yarrow,
@@ -163,15 +184,21 @@ class BaseJourney:
             head_width=arrow_headwidth,
             head_starts_at_zero=True,
             length_includes_head=True,
+            transform=PC
         )
         arr1.jm_user_location = "start" if arrow_location == "both" else arrow_location
         artists["arrow1"] = arr1
+
+        print(xarrow, yarrow, dx, dy, arrow_location, arrow_headwidth)
 
         if arrow_location == "both":
             dx = x[0] - x[1]
             dy = y[0] - y[1]
             xarrow = x[0] - dx
             yarrow = y[0] - dy
+
+            if (dx == 0) and (dy == 0):
+                raise ValueError("Cannot add arrow with zero length")
 
             arr2 = mpatches.FancyArrow(
                 x[0] - dx,
@@ -182,9 +209,11 @@ class BaseJourney:
                 head_width=arrow_headwidth,
                 head_starts_at_zero=False,
                 length_includes_head=True,
+                transform=PC,
             )
             arr2.jm_user_location = "end" if arrow_location == "both" else arrow_location
             artists["arrow2"] = arr2
+
 
         return artists
 
@@ -208,6 +237,7 @@ class ArcJourney(BaseJourney):
         offset=(0, 0),
         arrow_location=None,
         arrow_headwidth=None,
+        arrow_length=0.1,
         **kwargs
     ):
 
@@ -226,10 +256,10 @@ class ArcJourney(BaseJourney):
         y = y + offset[1]
         fog_clearance = kwargs.pop("fog_clearance", None)
 
-        line = Line2D(x, y, **kwargs)
+        line = Line2D(x, y, transform=PC, **kwargs)
 
         artists = {"line": line}
-        arrows = self.add_arrows(line, x, y, arrow_location, arrow_headwidth)
+        arrows = self.add_arrows(line, x, y, arrow_location, arrow_headwidth, arrow_length=arrow_length)
         artists.update(arrows)
 
 
@@ -247,7 +277,7 @@ class ArcJourney(BaseJourney):
 
 
 class GPXJourney(BaseJourney):
-    def __init__(self, gpx_file, offset=(0, 0), arrow_location=None, arrow_headwidth=None, interp=0, *args, **kwargs):
+    def __init__(self, gpx_file, offset=(0, 0), arrow_location=None, arrow_headwidth=None, arrow_length=0.1, interp=0, *args, **kwargs):
         
         
         lat, lon = read_gpx(gpx_file, interp=interp)
@@ -257,9 +287,9 @@ class GPXJourney(BaseJourney):
         x = x + offset[0]
         y = y + offset[1]
 
-        line = Line2D(x, y, *args, **kwargs)
+        line = Line2D(x, y, *args, transform=PC, **kwargs)
         artists = {"line": line}
-        arrrows = self.add_arrows(line, x, y, arrow_location=arrow_location, arrow_headwidth=arrow_headwidth)
+        arrrows = self.add_arrows(line, x, y, arrow_location=arrow_location, arrow_headwidth=arrow_headwidth, arrow_length=arrow_length)
         artists.update(arrrows)
         super().__init__(x, y, artists, fog_clearance=fog_clearance)
 
@@ -316,6 +346,7 @@ class BandedArcJourney(BaseJourney):
         self.polygon = mpatches.Polygon(
             np.array([x, y]).T,
             closed=True,
+            transform=PC,
             **kwargs
         )
         artists = {"polygon": self.polygon}
@@ -443,17 +474,21 @@ def get_arc_path(
     return x, y
 
 
-def read_gpx(filename, interp=0):
+def read_gpx(filename, interp=100):
     with open(filename, "r") as f:
         gpx = gpxpy.parse(f)
     lat = np.array([p.point.latitude for p in gpx.get_points_data()])
     lon = np.array([p.point.longitude for p in gpx.get_points_data()])
 
-    if not interp:
-        return lat, lon
-
     # strip repeated pairs of points using np.diff, remembering
     # to always keep the first point
+    repeats =  (np.diff(lat) == 0) & (np.diff(lon) == 0)
+    mask = np.concatenate([[True], ~repeats])
+    lat = lat[mask]
+    lon = lon[mask]
+
+    if not interp:
+        return lat, lon
 
     lat, lon = interpolate_journey(lat, lon, n=interp)
 
@@ -464,6 +499,7 @@ def read_gpx(filename, interp=0):
 
 def distance_map_from_point(ax, lon, lat, nx, ny):
     # from data coordinates to display coordinates
+    lon, lat = ax.projection.transform_point(lon, lat, PC)
     x0, y0 = ax.transData.transform([lon, lat])
     # from display coordinates to axes coordinates (0 to 1)
     x0, y0 = ax.transAxes.inverted().transform([x0, y0])
