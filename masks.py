@@ -24,21 +24,3 @@ def make_noise(nx, ny):
     rgba[:, :, 3] = 1
     return rgba
 
-
-# def unmask_line(map, noise, x0, y0, x1, y1, r, n=20):
-#     mask = np.ones(noise.shape[:2])
-#     for i in range(n):
-#         xi = x0 + (x1 - x0) * i / n
-#         yi = y0 + (y1 - y0) * i / n
-#         mask_i = map.distance_map_from_point(xi, yi)
-#         mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
-#         np.minimum(mask, mask_i, out=mask)
-#     return mask
-
-# def unmask_path(noise, path_x, path_y, r):
-#     mask = np.ones(noise.shape[:2])
-#     for xi, yi in zip(path_x, path_y):
-#         mask_i = map.distance_map_from_point(xi, yi)
-#         mask_i = 1 - np.exp(-mask_i**2 / 2 / r**2)
-#         np.minimum(mask, mask_i, out=mask)
-#     return mask

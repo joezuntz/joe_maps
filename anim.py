@@ -28,7 +28,10 @@ class Timeline:
     def add_every_frame_between_updater(self, f, start, end, *args, **kwargs):
         self.every_frame_between_updaters.append([f, start, end, args, kwargs])
 
-    def update(self, f):
+    def update(self, f, fig=None):
+        if fig is not None:
+            fig.jm_frame_index = f
+
         artists = []
         for i, (func, start, end, args, kwargs, is_done) in enumerate(
             self.fraction_updaters[:]
@@ -80,7 +83,6 @@ class Timeline:
         if self.verbose:
             print(f"Frame {f} updating {len(artists)} artists:", 
                   ", ".join(str(a) for a in artists))
-            
 
         return artists
 
@@ -93,7 +95,8 @@ class Timeline:
 
     def save(self, fig, filename, frames, interval=200, **kwargs):
         ani = FuncAnimation(
-            fig, self.update, interval=interval, frames=frames, blit=True
+            fig, self.update, interval=interval, frames=frames, blit=True,
+            fargs=(fig, ),
         )
         ani.save(filename, **kwargs)
 

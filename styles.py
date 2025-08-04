@@ -3,7 +3,7 @@ import cartopy.crs as ccrs
 import matplotlib
 import cartopy.feature
 import matplotlib.pyplot as plt
-
+from .figure import TransformableFigure, MultiTransform
 
 PC = ccrs.PlateCarree()
 
@@ -46,7 +46,8 @@ def basic_map(
     
     if projection is None:
         projection = ccrs.PlateCarree()
-    fig = plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize, FigureClass=TransformableFigure)
+    fig.post_transform = MultiTransform()
     ax = plt.axes(projection=projection)
 
     if coast:

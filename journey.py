@@ -45,7 +45,7 @@ class BaseJourney:
         n = len(self.x)
         return (self.x[n//2], self.y[n//2])
     
-    def add_label(self, ax, label, facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue,**kwargs):
+    def add_label(self, ax, label, facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, boxalpha=1.0, **kwargs):
         """
         Add a label to the journey at the specified coordinates.
         If x and y are not provided, the label is added at the end of the journey.
@@ -56,8 +56,12 @@ class BaseJourney:
         offset = kwargs.pop("offset", (0, 0))
         x += offset[0]
         y += offset[1]
-        box = dict(boxstyle="round", facecolor=facecolor, edgecolor=edgecolor, alpha=kwargs.get("alpha", 1.0))
-        text = ax.text(x, y, label, ha='left', va='center', bbox=box, transform=PC, **kwargs)
+        bbox = kwargs.pop("bbox", True)
+        if bbox is True:
+            bbox = dict(boxstyle="round", facecolor=facecolor, edgecolor=edgecolor, alpha=boxalpha)
+        elif bbox is False:
+            bbox = None
+        text = ax.text(x, y, label, ha='left', va='center', bbox=bbox, transform=PC, **kwargs)
         self.artists["label"] = text
         self.label_kind = kwargs.get("label_kind", LABEL_KIND_TRANSIENT)
 
@@ -109,13 +113,20 @@ class BaseJourney:
         # Return everything that might be animated
         return list(self.artists.values())
     
-    def fade_out(self, frac):
+    def fade_out(self, frac, final_alpha=0.0):
         if self.initial_alphas is None:
-            self.initial_alphas = {k: a.get_alpha() for k, a in self.artists.items()}
+            self.initial_alphas = {}
+            for k, a in self.artists.items():
+                alpha = a.get_alpha()
+                if alpha is None:
+                    alpha = 1.0
+                self.initial_alphas[k] = alpha
+
         for k, a in self.artists.items():
             if a.get_visible():
-                alpha = self.initial_alphas[k] * (1 - frac)
+                alpha = self.initial_alphas[k] * (1 - frac) + final_alpha * frac
                 a.set_alpha(alpha)
+        return list(self.artists.values())
     
     def animate_label(self, frac):
         if "label" in self.artists:
@@ -129,16 +140,18 @@ class BaseJourney:
             label.set_visible(visible)
             return [label]
         return []
-
-    def distance_map(self, ax, nx, ny, frac=1):
-        d = np.zeros((ny, nx))
-        d[:] = np.inf
-        npoint = int(len(self.x) * frac)
-        for xi, yi in zip(self.x[:npoint], self.y[:npoint]):
-            d_i = distance_map_from_point(ax, xi, yi, nx, ny)
-            np.minimum(d, d_i, out=d)
-        return d
         
+    def get_lat_lon_update(self, last_frac, frac):
+        """
+        Get the lat/lon coordinates for the journey at the given fraction.
+        This is used to update the fog of war.
+        """
+        n1 = int(len(self.x) * last_frac)
+        n2 = int(len(self.x) * frac)
+
+        x = self.x[n1:n2]
+        y = self.y[n1:n2]
+        return y, x
 
     def add_arrows(self, line, x, y, arrow_location="end", arrow_headwidth=0.02, arrow_length=0.1):
         artists = {}
@@ -188,8 +201,6 @@ class BaseJourney:
         )
         arr1.jm_user_location = "start" if arrow_location == "both" else arrow_location
         artists["arrow1"] = arr1
-
-        print(xarrow, yarrow, dx, dy, arrow_location, arrow_headwidth)
 
         if arrow_location == "both":
             dx = x[0] - x[1]
@@ -277,10 +288,14 @@ class ArcJourney(BaseJourney):
 
 
 class GPXJourney(BaseJourney):
-    def __init__(self, gpx_file, offset=(0, 0), arrow_location=None, arrow_headwidth=None, arrow_length=0.1, interp=0, *args, **kwargs):
+    def __init__(self, gpx_file, offset=(0, 0), arrow_location=None, arrow_headwidth=None, arrow_length=0.1, interp=100, reverse=False, *args, **kwargs):
         
         
         lat, lon = read_gpx(gpx_file, interp=interp)
+        if reverse:
+            lat = lat[::-1]
+            lon = lon[::-1]
+
         fog_clearance = kwargs.pop("fog_clearance", None)
         y, x = lat, lon
 
@@ -351,6 +366,27 @@ class BandedArcJourney(BaseJourney):
         )
         artists = {"polygon": self.polygon}
         super().__init__(x, y, artists, fog_clearance=fog_clearance)
+
+    def get_lat_lon_update(self, last_frac, frac):
+        """
+        Get the lat/lon coordinates for the banded arc journey at the given fraction.
+        This is used to update the fog of war.
+        """
+        n1 = int(len(self.x1) * last_frac)
+        n2 = int(len(self.x1) * frac)
+
+        y1 = self.y1[n1:n2]
+        x1 = self.x1[n1:n2]
+        y2 = self.y2[n1:n2]
+        x2 = self.x2[n1:n2]
+        # some points in a line between the two arcs
+        if x1.size and x2.size:
+            x3 = np.linspace(x1[-1], x2[0], 10)
+            y3 = np.linspace(y1[-1], y2[0], 10)
+        else:
+            x3 = np.array([])
+            y3 = np.array([])
+        return np.concatenate((y1, y3[1:-1], y2[::-1])), np.concatenate((x1, x3[1:-1], x2[::-1]))
     
     def length(self):
         """
@@ -399,49 +435,6 @@ class BandedArcJourney(BaseJourney):
         """
         ax.add_patch(self.artists["polygon"])
 
-    def distance_map(self, ax, nx, ny, frac=1):
-        # This might have already happened in the animate method
-        # but it might not
-        self.update_polygon(frac)
-
-
-        d = np.zeros((ny, nx))
-        d[:] = np.inf
-        npoint = int(len(self.x1) * frac)
-        for xi, yi in zip(self.x1[:npoint], self.y1[:npoint]):
-            d_i = distance_map_from_point(ax, xi, yi, nx, ny)
-            np.minimum(d, d_i, out=d)
-        for xi, yi in zip(self.x2[:npoint], self.y2[:npoint]):
-            d_i = distance_map_from_point(ax, xi, yi, nx, ny)
-            np.minimum(d, d_i, out=d)
-
-        # Masking the area outside the band is the same as
-        # the base map, so we can use the superclass method
-        # first.
-        # d = super().distance_map(ax, nx, ny, frac=frac)
-
-        # But we also want to mask the area inside the band
-        # So we set the distance to zero inside the band
-        # pixel centre coordinates
-        x = np.arange(nx) / nx
-        y = np.arange(ny) / ny
-        # mesh of points
-        xg, yg = np.meshgrid(x, y)
-        points = np.array([xg.flatten(), yg.flatten()]).T
-        # transform from axis coordiantes to display coordinates
-        points = ax.transAxes.transform(points)
-
-        # contains_points requires display coordinates,
-        # i.e. pixels.
-        # polygon should already have been animated
-        # so we don't need to use the frac parameter here.
-        inside = self.polygon.contains_points(points)
-        # reshape inside back to the shape of the distance map
-        inside = inside.reshape((ny, nx))
-        # Set the distance to zero inside the band
-        d[inside] = 0
-        
-        return d
         
 
 def get_arc_path(
@@ -461,7 +454,7 @@ def get_arc_path(
     nodes = np.array([(lon_start, lon_node, lon_end), (lat_start, lat_node, lat_end)])
     curve = bezier.Curve(nodes, degree=2)
     if N is None:
-        N = 200
+        N = 100
     x = np.zeros(N)
     y = np.zeros(N)
     S = np.linspace(start_gap, 1 - end_gap, N)
@@ -494,22 +487,6 @@ def read_gpx(filename, interp=100):
 
     return lat, lon
 
-
-
-
-def distance_map_from_point(ax, lon, lat, nx, ny):
-    # from data coordinates to display coordinates
-    lon, lat = ax.projection.transform_point(lon, lat, PC)
-    x0, y0 = ax.transData.transform([lon, lat])
-    # from display coordinates to axes coordinates (0 to 1)
-    x0, y0 = ax.transAxes.inverted().transform([x0, y0])
-    dx = np.arange(nx)
-    dy = np.arange(ny)
-    dx, dy = np.meshgrid(dx, dy)
-    dx = dx - x0 * nx
-    dy = dy - y0 * ny
-    d = np.sqrt(dx**2 + dy**2)
-    return d
 
 
 

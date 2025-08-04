@@ -102,15 +102,19 @@ class Map:
         self.journeys = []
         self.tile_suite = TileSuite(self.ax, tiler)
         self.fog = None
+        self.projection = projection
 
-    def add_fog(self, nx, alpha=0.5, animated=True, smoothing=0):
+    def add_post_transform(self, transform):
+        self.fig.post_transform.add_transform(transform)
+
+    def add_fog(self, nx, ny, alpha=0.5, nlat=1000, nlon=2000, sigma=1.0):
         """
         Add a fog layer to the map.
         """
         if self.fog is not None:
             raise ValueError("Fog layer already exists. Use `reset_fog` to reset it.")
 
-        self.fog = FogOfWar(nx, self.ax, alpha=alpha, animated=animated, smoothing=smoothing)
+        self.fog = FogOfWar(self.ax, nx, ny, nlat=nlat, nlon=nlon, projection=self.projection, alpha=alpha, sigma=sigma)
         self.fog.draw()
         return self.fog
 
@@ -127,10 +131,13 @@ class Map:
         facecolor=mmc_colors.wheat,
         textcolor=mmc_colors.dark_blue,
         edgecolor=mmc_colors.dark_blue,
+        boxalpha=1.0,
         zorder=zorders.LABELS,
         fontname="Arial",
         fontsize=14,
+        weight="normal",
         bbox=True,
+        boxstyle="round",
         **kwargs,
     ):
         if isinstance(place, str):
@@ -138,10 +145,12 @@ class Map:
         else:
             y, x = place
 
-        if bbox:
-            box = dict(boxstyle="round", facecolor=facecolor, alpha=1, edgecolor=edgecolor)
-        else:
+        if bbox is True:
+            box = dict(boxstyle=boxstyle, facecolor=facecolor, alpha=boxalpha, edgecolor=edgecolor)
+        elif bbox is False:
             box = None
+        else:
+            box = bbox
 
         return self.ax.text(
             x + offset[0],
@@ -153,7 +162,39 @@ class Map:
             color=textcolor,
             zorder=zorder,
             transform=PC,
+            weight=weight,
+            **kwargs
         )
+    
+    def unmask_journey(self, journey, frac=1.0):
+        """
+        Unmask the fog of war for a journey.
+        """
+        if self.fog is None:
+            raise ValueError("Fog of war layer not initialized. Use `add_fog` to add it.")
+        self.fog.unmask_journey(journey, frac=frac)
+        return self.fog.redraw()
+    
+    def unmask_location(self, place, r_km):
+        """
+        Unmask the fog of war for a location.
+        """
+        if self.fog is None:
+            raise ValueError("Fog of war layer not initialized. Use `add_fog` to add it.")
+        if place not in self.locations:
+            raise ValueError(f"Location {place} not found in map locations.")
+        lat, lon = self.locations[place]
+        self.fog.unmask([lat], [lon], r_km)
+        return self.fog.redraw()
+
+    def unmask_point(self, lat, lon, r_km):
+        """
+        Unmask the fog of war for a point.
+        """
+        if self.fog is None:
+            raise ValueError("Fog of war layer not initialized. Use `add_fog` to add it.")
+        self.fog.unmask([lat], [lon], r_km)
+        return self.fog.redraw()
 
     def add_label(
         self,
@@ -207,6 +248,7 @@ class Map:
         journey.draw(self.ax)
         self.journeys.append(journey)
         return journey
+
     
     def add_band_journey(
         self,
@@ -215,6 +257,7 @@ class Map:
         theta_width,
         label=None,
         label_args={},
+        N=None,
         **kwargs
     ):
         lat_start, lon_start = self.locations[start]
@@ -225,6 +268,7 @@ class Map:
             lat_end,
             lon_end,
             theta_width=theta_width,
+            N=N,
             **kwargs
         )
         journey.add_label(self.ax, label, **label_args)
