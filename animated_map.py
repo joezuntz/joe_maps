@@ -5,6 +5,8 @@ from .styles import mmc_colors, PC
 import matplotlib.pyplot as plt
 import numpy as np
 from . import zorders
+from .figure import DuckTransform
+
 
 class AnimatedMap(Map):
     def __init__(self, *args, delta, **kwargs):
@@ -14,7 +16,8 @@ class AnimatedMap(Map):
         self.init_rect = matplotlib.patches.Rectangle((2, 28), 0.01, 0.01, alpha=0, transform=PC)
         self.ax.add_patch(self.init_rect)
         self.current_time = 0.0
-        # self._current_zoom = self.ax.get_xlim(), self.ax.get_ylim()
+        self._current_border_color = "#000000FF"
+        self._current_border_width = 1.0
         self._current_extent = self.ax.get_extent(crs=PC)
         self._current_label_offsets = {}
         self.fog_img = None
@@ -29,7 +32,10 @@ class AnimatedMap(Map):
         zorder=zorders.LABELS,
         **kwargs,
     ):
-        y, x = self.locations[place]
+        if isinstance(place, str):
+            y, x = self.locations[place]
+        else:
+            y, x = place
         box = dict(boxstyle="round", facecolor=facecolor, alpha=1, edgecolor=edgecolor)
         label = self.ax.text(
             x + offset[0],
@@ -86,7 +92,6 @@ class AnimatedMap(Map):
             f"Journey will take from time {self.current_time:.2f} to {end_time:.2f} == frame {start_frame:.1f} to {end_frame:.1f}"
         )
 
-
         if self.fog is not None and journey.fog_clearance is not None:
             supe = super()
             def unmask_journey(f):
@@ -115,11 +120,13 @@ class AnimatedMap(Map):
         return journey
 
     def add_return_journey(
-        self, *args, time=None, speed=None, fade_after=0, fade_to=0, **kwargs
+        self, journey, time=None, speed=None, fade_after=0, fade_to=0,
     ):
-        journey = super().add_return_journey(*args, **kwargs)
-        self._animate_journey(journey, time, speed, fade_after=fade_after, fade_to=fade_to)
-        return journey
+        return_journey = journey.get_reverse()
+        return_journey.draw(self.ax)
+        self._animate_journey(return_journey, time, speed, fade_after=fade_after, fade_to=fade_to)
+        self.journeys.append(return_journey)
+        return return_journey
 
     def add_gpx_journey(
         self, *args, speed=None, time=None, fade_after=0, fade_to=0, **kwargs
@@ -137,11 +144,77 @@ class AnimatedMap(Map):
     def save(self, path, **kwargs):
         interval = self.delta * 1000
         frames = int(np.ceil(self.current_time / self.delta)) + 1
+        if self.fig.post_transform is not None:
+            if "writer" in kwargs and (kwargs["writer"] not in ["None", "ffmpeg_file"]):
+                raise ValueError("Writer must be 'None' or 'ffmpeg_file' for AnimatedMap if transforms are used")
+            kwargs.pop("writer", None)
         print(f"\nAnimation will have {frames} frames\n")
-        self.timeline.save(self.fig, path, interval=interval, frames=frames, **kwargs)
+        self.timeline.save(self.fig, path, interval=interval, frames=frames, writer="ffmpeg_file", **kwargs)
 
     def delay_last_transition(self):
         self.timeline.transitions[-1][1] = self.current_time / self.delta
+
+    def set_border_width(self, width, time=None):
+        supe = super()
+
+        # If this is an instant change we add a transition function
+        # at the current time
+        if time is None:
+            def f():
+                return supe.set_border_width(width)
+            self.timeline.add_transition(f, self.current_time / self.delta)
+            self._current_border_width = width
+            print("Setting border width to", width, "at frame", self.current_time / self.delta)
+            return
+        
+        # Otherwise we interpolate the border width
+        initial_width = self._current_border_width
+        start_frame = self.current_time / self.delta
+        end_frame = (self.current_time + time) / self.delta
+        print(f"Fading border width from {initial_width} to {width} from frame {start_frame} to {end_frame}")
+
+        def f(frac):
+            w = initial_width + frac * (width - initial_width)
+            return supe.set_border_width(w)
+        self.timeline.add_fraction_updater(f, start_frame, end_frame)
+        self.current_time += time
+        self._current_border_width = width
+
+    def set_border_color(self, color, time=None):
+        """
+        Set the color of the border.
+        If time is specified, the border will fade to the new color over that time.
+        """
+        supe = super()
+        
+        # If this is an instant change we add a transition function
+        # at the current time
+        if time is None:
+            def f():
+                return supe.set_border_color(color)
+            self.timeline.add_transition(f, self.current_time / self.delta)
+            print("Setting border color to", color, "at frame", self.current_time / self.delta)
+            self._current_border_color = color
+            return
+
+        # Otherwise we create a colormap that fades from the initial color to the new color
+        # and add a fraction updater to the timeline
+        initial_color = self._current_border_color
+        colormap = matplotlib.colors.LinearSegmentedColormap.from_list(
+            "border_fade", [initial_color, color], N=256
+        )
+
+        start_frame = self.current_time / self.delta
+        end_frame = (self.current_time + time) / self.delta
+        print(f"Fading border color from {initial_color} to {color} from frame {start_frame} to {end_frame}")
+
+        def f(frac):
+            intermediate_color = colormap(frac)
+            return supe.set_border_color(intermediate_color)
+        self.timeline.add_fraction_updater(f, start_frame, end_frame)
+        self.current_time += time
+        self._current_border_color = color
+
 
     def set_title(self, title, **kwargs):
         def f(t, **kwargs):
@@ -237,6 +310,36 @@ class AnimatedMap(Map):
         self.timeline.add_fraction_updater(f, frame0, frame1)
         self.current_time += time
         return c
+    
+    def add_danger_pulse(self, lat, lon, radius, alpha_max, time):
+        """
+        Add a pulsing circle to indicate danger at a location.
+        """
+        # create a gaussian image
+        y, x = np.mgrid[-4.0 : 4.0 : 0.01, -4.0 : 4.0 : 0.01]
+        nx, ny = x.shape
+        z = np.exp(-0.5*(x**2 + y**2))
+        z = z / z.max()
+        extent = [lon - 4*radius, lon + 4*radius, lat - 4*radius, lat + 4*radius]
+        d = np.zeros((ny, nx, 4), dtype=np.float32)
+        d[:, :, 0] = 1.0 # purely red
+        d[:, :, 3] = 0.0 # initially fully transparent
+        img = self.ax.imshow(d, extent=extent, transform=PC, zorder=zorders.PULSE)
+
+        frame0 = self.current_time / self.delta
+        frame1 = (self.current_time + time) / self.delta
+        print(f"Will animate danger pulse from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}")
+        def f(frac):
+            # fade in then out again as a sine wave rising and falling
+            alpha = np.sin(np.pi * frac)
+            d[:, :, 3] = alpha * z * alpha_max
+            img.set_data(d)
+            img.set_extent(extent)
+            img.set_transform(PC)
+            return [img]
+        self.timeline.add_fraction_updater(f, frame0, frame1)
+        self.current_time += time
+
 
     def wait(self, time):
         self.current_time += time
@@ -363,3 +466,46 @@ class AnimatedMap(Map):
 
         self.timeline.add_transition(f, self.current_time / self.delta)
 
+
+    def add_ripple(self, lat, lon, sigma, scaling, time, iterations_per_frame=30, path_steps_per_frame=5, damping=0.99):
+        frame_start = int(self.current_time / self.delta)
+        frame_end = int(frame_start + time / self.delta)
+        nx, ny = self.fig.get_size_inches() * self.fig.get_dpi()
+        nx = int(nx)
+        ny = int(ny)
+
+        path = np.zeros((len(lat), 2))
+        path[:, 0] = lon
+        path[:, 1] = lat
+
+        path = self.ax.transData.transform(path)
+        path_xpix = path[:, 0]
+        path_ypix = path[:, 1]
+
+
+        wave_kwargs = dict(
+                nx=nx, 
+                ny=ny,
+                Lx=nx/6,
+                Ly=ny/6,
+                g=10.0,
+                h=100.0,
+                dt=0.05,
+                damping=damping,
+        )
+        self.wait(time)
+
+
+
+        transform = DuckTransform(
+            frame_start=frame_start,
+            frame_end=frame_end,
+            iterations_per_frame=iterations_per_frame,
+            wave_kwargs=wave_kwargs,
+            path_sigma=sigma,
+            path_steps_per_frame=path_steps_per_frame,
+            path_x=path_xpix,
+            path_y=path_ypix,
+            scaling=scaling,
+        )
+        self.fig.post_transform.add_transform(transform)

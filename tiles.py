@@ -1,5 +1,6 @@
 import cartopy.io.img_tiles
 from .utils import geometry_from_extent
+from . import zorders
 import os
 
 # set cache directory for cartopy tiles
@@ -80,6 +81,6 @@ class TileSuite:
         assert alpha != 0
         geometry = geometry_from_extent(self.ax, extent, self.tiler.crs)
         img, tile_extent, origin = self.tiler.image_for_domain(geometry, zoom_level)
-        artist = self.ax.imshow(img, extent=tile_extent, origin=origin, transform=self.tiler.crs, alpha=alpha)
+        artist = self.ax.imshow(img, extent=tile_extent, origin=origin, transform=self.tiler.crs, alpha=alpha, zorder=zorders.TILE)
         return artist
 

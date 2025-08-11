@@ -1,3 +1,7 @@
 
 FOG = 5
 LABELS = 10
+TILE = 4
+JOURNEY = 7
+POINT = 6
+PULSE = 11

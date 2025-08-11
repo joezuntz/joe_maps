@@ -6,6 +6,7 @@ from matplotlib.lines import Line2D
 import matplotlib.patches as mpatches
 from . import anim
 from .styles import mmc_colors, PC
+from . import zorders
 
 LABEL_KIND_PERMANENT = "permanent"
 LABEL_KIND_TRANSIENT = "transient"
@@ -13,7 +14,6 @@ LABEL_KIND_PERSISTENT = "persistent"
 
 class BaseJourney:
     """
-    Not yet written
     """
 
     def __init__(self, x, y, artists, fog_clearance=None):
@@ -50,7 +50,7 @@ class BaseJourney:
         Add a label to the journey at the specified coordinates.
         If x and y are not provided, the label is added at the end of the journey.
         """
-        if label is None:
+        if label is None or label == "":
             return
         x, y = self.get_label_point()
         offset = kwargs.pop("offset", (0, 0))
@@ -61,6 +61,9 @@ class BaseJourney:
             bbox = dict(boxstyle="round", facecolor=facecolor, edgecolor=edgecolor, alpha=boxalpha)
         elif bbox is False:
             bbox = None
+
+        kwargs.setdefault("zorder", zorders.LABELS)
+
         text = ax.text(x, y, label, ha='left', va='center', bbox=bbox, transform=PC, **kwargs)
         self.artists["label"] = text
         self.label_kind = kwargs.get("label_kind", LABEL_KIND_TRANSIENT)
@@ -153,7 +156,7 @@ class BaseJourney:
         y = self.y[n1:n2]
         return y, x
 
-    def add_arrows(self, line, x, y, arrow_location="end", arrow_headwidth=0.02, arrow_length=0.1):
+    def add_arrows(self, line, x, y, arrow_location="end", arrow_headwidth=0.02, arrow_length=0.1, zorder=None):
         artists = {}
         if arrow_location is None:
             return artists
@@ -197,7 +200,8 @@ class BaseJourney:
             head_width=arrow_headwidth,
             head_starts_at_zero=True,
             length_includes_head=True,
-            transform=PC
+            transform=PC,
+            zorder=zorder,
         )
         arr1.jm_user_location = "start" if arrow_location == "both" else arrow_location
         artists["arrow1"] = arr1
@@ -221,6 +225,7 @@ class BaseJourney:
                 head_starts_at_zero=False,
                 length_includes_head=True,
                 transform=PC,
+                zorder=zorder,
             )
             arr2.jm_user_location = "end" if arrow_location == "both" else arrow_location
             artists["arrow2"] = arr2
@@ -249,32 +254,57 @@ class ArcJourney(BaseJourney):
         arrow_location=None,
         arrow_headwidth=None,
         arrow_length=0.1,
+        x=None,
+        y=None,
         **kwargs
     ):
 
-        x, y = get_arc_path(
-            lat_start,
-            lon_start,
-            lat_end,
-            lon_end,
-            theta=theta,
-            N=N,
-            start_gap=start_gap,
-            end_gap=end_gap,
-        )
+        if x is None or y is None:
+            x, y = get_arc_path(
+                lat_start,
+                lon_start,
+                lat_end,
+                lon_end,
+                theta=theta,
+                N=N,
+                start_gap=start_gap,
+                end_gap=end_gap,
+            )
+
 
         x = x + offset[0]
         y = y + offset[1]
+
         fog_clearance = kwargs.pop("fog_clearance", None)
 
+
+        kwargs.setdefault("zorder", zorders.JOURNEY)
+
         line = Line2D(x, y, transform=PC, **kwargs)
+        self.line_kwargs = kwargs.copy()
 
         artists = {"line": line}
-        arrows = self.add_arrows(line, x, y, arrow_location, arrow_headwidth, arrow_length=arrow_length)
+        self.arrow_location = arrow_location
+        self.arrow_headwidth = arrow_headwidth
+        self.arrow_length = arrow_length
+        arrows = self.add_arrows(line, x, y, arrow_location, arrow_headwidth, arrow_length=arrow_length, zorder=line.get_zorder())
         artists.update(arrows)
 
-
         super().__init__(x, y, artists, fog_clearance=fog_clearance)
+
+    def get_reverse(self):
+        """
+        Return a new ArcJourney with the start and end points reversed.
+        """
+        return self.__class__(
+            None, None, None, None,
+            arrow_location=self.arrow_location,
+            arrow_headwidth=self.arrow_headwidth,
+            arrow_length=self.arrow_length,
+            x=self.x[::-1],
+            y=self.y[::-1],
+            **self.line_kwargs
+        )
 
     def draw(self, ax):
         """
@@ -302,9 +332,11 @@ class GPXJourney(BaseJourney):
         x = x + offset[0]
         y = y + offset[1]
 
+        kwargs.setdefault("zorder", zorders.JOURNEY)
+
         line = Line2D(x, y, *args, transform=PC, **kwargs)
         artists = {"line": line}
-        arrrows = self.add_arrows(line, x, y, arrow_location=arrow_location, arrow_headwidth=arrow_headwidth, arrow_length=arrow_length)
+        arrrows = self.add_arrows(line, x, y, arrow_location=arrow_location, arrow_headwidth=arrow_headwidth, arrow_length=arrow_length, zorder=line.get_zorder())
         artists.update(arrrows)
         super().__init__(x, y, artists, fog_clearance=fog_clearance)
 
@@ -358,6 +390,9 @@ class BandedArcJourney(BaseJourney):
         self.x2 = x2
         self.y1 = y1
         self.y2 = y2
+
+        kwargs.setdefault("zorder", zorders.JOURNEY)
+
         self.polygon = mpatches.Polygon(
             np.array([x, y]).T,
             closed=True,

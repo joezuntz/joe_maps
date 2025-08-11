@@ -122,6 +122,23 @@ class Map:
     def add_locations(self, places):
         self.locations.update(places)
 
+    def set_border_width(self, width):
+        """
+        Set the width of the border.
+        """
+        spines = list(self.ax.spines.values())
+        for spine in spines:
+            spine.set_linewidth(width)
+        return spines
+
+    def set_border_color(self, color):
+        """
+        Set the color of the border.
+        """
+        spines = list(self.ax.spines.values())
+        for spine in spines:
+            spine.set_color(color)
+        return spines
 
     def add_text(
         self,
@@ -220,6 +237,7 @@ class Map:
 
     def add_point(self, place, *args, **kwargs):
         y, x = self.locations[place]
+        kwargs.setdefault("zorder", zorders.POINT)
         return self.ax.plot(x, y, *args, transform=PC, **kwargs)[0]
 
     def add_all_points(self, *args, **kwargs):
