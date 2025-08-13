@@ -21,6 +21,11 @@ class AnimatedMap(Map):
         self._current_extent = self.ax.get_extent(crs=PC)
         self._current_label_offsets = {}
         self.fog_img = None
+        self.verbose = True
+
+    def log(self, *args, **kwargs):
+        if self.verbose:
+            print(*args, **kwargs)
 
     def add_label(
         self,
@@ -51,18 +56,18 @@ class AnimatedMap(Map):
         self.labels[place] = label
         self._current_label_offsets[place] = offset
         label.set_visible(False)
-        print(f"Showing label {place} at", self.current_time)
+        self.log(f"Showing label {place} at", self.current_time)
         self.show(label)
         return label
     
     def add_text(self, place, text, time=None, offset=(0, 0), facecolor=mmc_colors.wheat, textcolor=mmc_colors.dark_blue, edgecolor=mmc_colors.dark_blue, bbox=True, boxstyle="round", **kwargs):
         text = super().add_text(place, text, offset=offset, facecolor=facecolor, textcolor=textcolor, edgecolor=edgecolor, bbox=bbox, boxstyle=boxstyle, **kwargs)
         text.set_visible(False)
-        print(f"Showing text '{text}' at {place} at", self.current_time)
+        self.log(f"Showing text '{text}' at {place} at", self.current_time)
         self.show(text)
         if time is not None:
             frame = (self.current_time + time) / self.delta
-            print(f"Hiding text '{text}' at {place} at", self.current_time + time)
+            self.log(f"Hiding text '{text}' at {place} at", self.current_time + time)
             self.timeline.add_transition(anim.make_disappear, frame, text)
             self.current_time += time
         return text
@@ -71,7 +76,7 @@ class AnimatedMap(Map):
     def add_point(self, place, *args, **kwargs):
         points = super().add_point(place, *args, **kwargs)
         points.set_visible(False)
-        print(f"Showing point at {place} at", self.current_time)
+        self.log(f"Showing point at {place} at", self.current_time)
         self.show(points)
         return points
 
@@ -88,7 +93,7 @@ class AnimatedMap(Map):
         end_time = self.current_time + time
         start_frame = self.current_time / self.delta
         end_frame = end_time / self.delta
-        print(
+        self.log(
             f"Journey will take from time {self.current_time:.2f} to {end_time:.2f} == frame {start_frame:.1f} to {end_frame:.1f}"
         )
 
@@ -107,7 +112,7 @@ class AnimatedMap(Map):
     
         if fade_after > 0:
             fade_frame = (self.current_time + fade_after) / self.delta
-            print(f"Journey will fade out from end to  {fade_frame:.1f}")
+            self.log(f"Journey will fade out from end to  {fade_frame:.1f}")
             self.timeline.add_fraction_updater(
                 journey.fade_out, end_frame, fade_frame, fade_to
             )
@@ -148,7 +153,7 @@ class AnimatedMap(Map):
             if "writer" in kwargs and (kwargs["writer"] not in ["None", "ffmpeg_file"]):
                 raise ValueError("Writer must be 'None' or 'ffmpeg_file' for AnimatedMap if transforms are used")
             kwargs.pop("writer", None)
-        print(f"\nAnimation will have {frames} frames\n")
+        self.log(f"\nAnimation will have {frames} frames\n")
         self.timeline.save(self.fig, path, interval=interval, frames=frames, writer="ffmpeg_file", **kwargs)
 
     def delay_last_transition(self):
@@ -164,14 +169,14 @@ class AnimatedMap(Map):
                 return supe.set_border_width(width)
             self.timeline.add_transition(f, self.current_time / self.delta)
             self._current_border_width = width
-            print("Setting border width to", width, "at frame", self.current_time / self.delta)
+            self.log("Setting border width to", width, "at frame", self.current_time / self.delta)
             return
         
         # Otherwise we interpolate the border width
         initial_width = self._current_border_width
         start_frame = self.current_time / self.delta
         end_frame = (self.current_time + time) / self.delta
-        print(f"Fading border width from {initial_width} to {width} from frame {start_frame} to {end_frame}")
+        self.log(f"Fading border width from {initial_width} to {width} from frame {start_frame} to {end_frame}")
 
         def f(frac):
             w = initial_width + frac * (width - initial_width)
@@ -193,7 +198,7 @@ class AnimatedMap(Map):
             def f():
                 return supe.set_border_color(color)
             self.timeline.add_transition(f, self.current_time / self.delta)
-            print("Setting border color to", color, "at frame", self.current_time / self.delta)
+            self.log("Setting border color to", color, "at frame", self.current_time / self.delta)
             self._current_border_color = color
             return
 
@@ -206,7 +211,7 @@ class AnimatedMap(Map):
 
         start_frame = self.current_time / self.delta
         end_frame = (self.current_time + time) / self.delta
-        print(f"Fading border color from {initial_color} to {color} from frame {start_frame} to {end_frame}")
+        self.log(f"Fading border color from {initial_color} to {color} from frame {start_frame} to {end_frame}")
 
         def f(frac):
             intermediate_color = colormap(frac)
@@ -265,7 +270,7 @@ class AnimatedMap(Map):
     def set_label_offsets(self, new_offsets, time):
         frame0 = self.current_time / self.delta
         frame1 = (self.current_time + time) / self.delta
-        print(
+        priself.lognt(
             f"Updating label locations from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}"
         )
         locations = {name: self.locations[name] for name in new_offsets}
@@ -294,7 +299,7 @@ class AnimatedMap(Map):
     def pulsing_circle(self, x, y, radius, radius_variation, time, npulse, **kwargs):
         frame0 = self.current_time / self.delta
         frame1 = (self.current_time + time) / self.delta
-        print(
+        self.log(
             f"Pulsing circle from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}"
         )
         c = plt.Circle((x, y), radius, **kwargs)
@@ -328,7 +333,7 @@ class AnimatedMap(Map):
 
         frame0 = self.current_time / self.delta
         frame1 = (self.current_time + time) / self.delta
-        print(f"Will animate danger pulse from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}")
+        self.log(f"Will animate danger pulse from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}")
         def f(frac):
             # fade in then out again as a sine wave rising and falling
             alpha = np.sin(np.pi * frac)
@@ -357,7 +362,7 @@ class AnimatedMap(Map):
         frame1 = t1 / self.delta
         end_x = (lon_min, lon_max)
         end_y = (lat_min, lat_max)
-        print(
+        self.log(
             f"Zoom from x={start_x} and x={end_x} to x={end_x} and y={end_y} will take from time {t0} to {t1} == frame {frame0} to {frame1}"
         )
         self.timeline.add_fraction_updater(
@@ -386,7 +391,7 @@ class AnimatedMap(Map):
     def fade_between_tiles(self, level0, level1, time):
         start_frame = self.current_time / self.delta
         end_frame = (self.current_time + time) / self.delta
-        print(f"Fade between tile levels {level0}-{level1} from time {self.current_time} to {self.current_time + time}")
+        self.log(f"Fade between tile levels {level0}-{level1} from time {self.current_time} to {self.current_time + time}")
 
         def f(frac):
             self.tile_suite.set_alpha(level0, 1 - frac)
@@ -400,7 +405,7 @@ class AnimatedMap(Map):
         start_frame = self.current_time / self.delta
         end_frame = (self.current_time + time) / self.delta
         self.current_time += time
-        print(f"Fade out tiles from time {self.current_time} to {self.current_time + time}")
+        self.log(f"Fade out tiles from time {self.current_time} to {self.current_time + time}")
 
         def f(frac):
             self.tile_suite.set_alpha(level, 1 - frac)
@@ -411,7 +416,7 @@ class AnimatedMap(Map):
     def fade_in_tiles(self, level, time):
         start_frame = self.current_time / self.delta
         end_frame = (self.current_time + time) / self.delta
-        print(f"Fade in tiles from time {self.current_time} to {self.current_time + time}")
+        self.log(f"Fade in tiles from time {self.current_time} to {self.current_time + time}")
         self.current_time += time
 
         def f(frac):
@@ -424,7 +429,7 @@ class AnimatedMap(Map):
     def unmask_point(self, lat, lon, r, time):
         frame0 = self.current_time / self.delta
         frame1 = (self.current_time + time) / self.delta
-        print(
+        self.log(
             f"Unmasking point from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}"
         )
         supe = super()
@@ -438,7 +443,7 @@ class AnimatedMap(Map):
     def unmask_location(self, place, r, time):
         frame0 = self.current_time / self.delta
         frame1 = (self.current_time + time) / self.delta
-        print(
+        self.log(
             f"Unmasking point from time {self.current_time} to {self.current_time + time} == frame {frame0} to {frame1}"
         )
         supe = super()

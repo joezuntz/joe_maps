@@ -7,3 +7,4 @@ from .utils import *
 from .styles import *
 from .animated_map import AnimatedMap
 from . import zorders
+from . import journey

@@ -73,7 +73,7 @@ class Map:
         ocean=True,
         rivers=False,
         coast=True,
-
+        rect=None,
         ocean_color=None,
         land_color=None,
         projection=None,
@@ -95,6 +95,7 @@ class Map:
             rivers=rivers,
             lakes=lakes,
             projection=projection,
+            rect=rect,
         )
         self.locations = {}
         self.gpx_routes = {}

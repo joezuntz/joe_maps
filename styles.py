@@ -41,6 +41,7 @@ def basic_map(
     border_color="darkgrey",
     figsize=(16, 16),
     projection=None,
+    rect=None,
     limits_already_transformed=False,
 ):
     
@@ -48,7 +49,7 @@ def basic_map(
         projection = ccrs.PlateCarree()
     fig = plt.figure(figsize=figsize, FigureClass=TransformableFigure)
     fig.post_transform = MultiTransform()
-    ax = plt.axes(projection=projection)
+    ax = plt.axes(rect, projection=projection)
 
     if coast:
         ax.coastlines(color=coast_color)

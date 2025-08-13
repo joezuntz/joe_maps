@@ -5,6 +5,7 @@ import scipy.ndimage
 import numpy as np
 import skimage.io
 from .waves import WaterWave2D
+import warnings
 
 class TransformableFigure(matplotlib.figure.Figure):
     """
@@ -23,7 +24,7 @@ class TransformableFigure(matplotlib.figure.Figure):
             frame_index = self.jm_frame_index
         else:
             frame_index = None
-
+            warnings.warn("TransformableFigure.savefig called without setting jm_frame_index on the figure. No transformation will be applied.", UserWarning)
 
         # If there is no transform, just use the default savefig method
         if self.post_transform is None or self.post_transform.is_null(frame_index):
@@ -98,7 +99,6 @@ class RollTransform(Transform):
             dy += np.cos(phase) * amp
 
         dy *= self.amplitude_function(time)
-        print("Applying transform with max dy = ", np.max(np.abs(dy)))
 
         return np.array([row, col + dy]).T
 
@@ -165,18 +165,14 @@ class DuckTransform(Transform):
         return PIL.Image.fromarray(tdata.astype(np.uint8))
     
     def __call__(self, image, frame_index):
-        print("DuckTransform called with frame index:", frame_index, "iterating", self.iterations_per_frame, "times")
         step = (frame_index - self.frame_start) * self.path_steps_per_frame
         if step < self.path_x.shape[0]:
-            print("Adding impulse at step", step, "with coordinates:", self.path_x[step], self.path_y[step])
             self.wave.add_impulse(
                 int(self.path_x[step]), 
                 int(self.path_y[step]), 
                 0.1 * self.path_steps_per_frame,
                 self.path_sigma
             )
-        else:
-            print("No impulse added at step", step, "as it exceeds path length")
         # Run the wave simulation for the number of iterations specified
         for _ in range(self.iterations_per_frame):
             self.wave.iterate()
