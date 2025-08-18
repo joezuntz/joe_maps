@@ -86,11 +86,11 @@ class Timeline:
 
         return artists
 
-    def save_frames(self, root, frames):
+    def save_frames(self, root, frames, fig=None):
         if type(frames) == int:
             frames = range(frames)
         for i in frames:
-            self.update(i)
+            self.update(i, fig=fig)
             self.ax.figure.savefig(f"{root}{i:05}.png")
 
     def save(self, fig, filename, frames, interval=200, **kwargs):
